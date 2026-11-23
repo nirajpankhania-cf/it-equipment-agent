@@ -53,6 +53,16 @@ def get_employee_info(employee_id: str) -> dict[str, Any]:
     return result
 
 
+@mcp.tool()
+def get_policy_limits(role: str) -> dict[str, Any]:
+    """Return the equipment entitlement for a role: for each item the maximum quantity
+    and the refresh interval in months, plus the items the role is not eligible for.
+    Returns found=false with error ROLE_NOT_FOUND if the role has no policy."""
+    result = core.get_policy_limits(role, store=get_store())
+    log.info("get_policy_limits role=%r found=%s", role, result["found"])
+    return result
+
+
 def main() -> None:
     log.info("starting MCP server over stdio")
     mcp.run(transport="stdio")
