@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from equipment.store import Store, normalize_employee_id
+from equipment.store import Store, normalize_employee_id, normalize_name
 
 EMPLOYEE_NOT_FOUND = "EMPLOYEE_NOT_FOUND"
+ROLE_NOT_FOUND = "ROLE_NOT_FOUND"
 
 
 def months_between(start: date, end: date) -> int:
@@ -63,4 +64,36 @@ def get_employee_info(
         "as_of": as_of.isoformat(),
         "policy_version": store.policy_version,
         "data_version": store.data_version,
+    }
+
+
+def get_policy_limits(role: str, *, store: Store) -> dict[str, Any]:
+    """Return the entitlement for every catalogue item under ``role``.
+
+    Role lookup is case-insensitive and ignores surrounding spaces. Items the role is
+    not entitled to are listed under ``not_eligible`` so the agent can see a definite no.
+    """
+    normalized = normalize_name(role)
+    limits = store.policies_file.policies.get(normalized) if normalized else None
+    if limits is None:
+        return {
+            "found": False,
+            "error": ROLE_NOT_FOUND,
+            "role": normalized,
+            "message": f"No policy for role '{role}'",
+            "known_roles": sorted(store.policies_file.policies),
+            "policy_version": store.policy_version,
+        }
+
+    entitlements = {
+        item: {"max_quantity": limit.max_quantity, "refresh_months": limit.refresh_months}
+        for item, limit in limits.items()
+    }
+    return {
+        "found": True,
+        "role": normalized,
+        "limits": entitlements,
+        "not_eligible": [item for item in store.catalogue if item not in entitlements],
+        "policy_version": store.policy_version,
+        "effective_date": store.policies_file.effective_date.isoformat(),
     }
