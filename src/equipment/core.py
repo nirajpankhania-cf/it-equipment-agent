@@ -7,7 +7,10 @@ outcome in an Observation and act on it.
 from __future__ import annotations
 
 import calendar
-from datetime import date
+import json
+import uuid
+from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 from equipment.models import Employee
@@ -16,8 +19,24 @@ from equipment.store import Store, normalize_employee_id, normalize_name
 # Escalation reason codes (docs/requirements.md section 5).
 EMPLOYEE_NOT_FOUND = "EMPLOYEE_NOT_FOUND"
 ITEM_NOT_IN_CATALOGUE = "ITEM_NOT_IN_CATALOGUE"
+EXCEPTION_CLAIMED = "EXCEPTION_CLAIMED"
 BORDERLINE_TIMING = "BORDERLINE_TIMING"
 DATA_INCOMPLETE = "DATA_INCOMPLETE"
+REFLECTION_FAILED = "REFLECTION_FAILED"
+ESCALATION_REASON_CODES = frozenset(
+    {
+        EMPLOYEE_NOT_FOUND,
+        ITEM_NOT_IN_CATALOGUE,
+        EXCEPTION_CLAIMED,
+        BORDERLINE_TIMING,
+        DATA_INCOMPLETE,
+        REFLECTION_FAILED,
+    }
+)
+
+# flag_for_human_review error codes.
+EMPTY_REASON = "EMPTY_REASON"
+INVALID_REASON_CODE = "INVALID_REASON_CODE"
 
 # Other structured-result codes.
 ROLE_NOT_FOUND = "ROLE_NOT_FOUND"
@@ -32,6 +51,8 @@ NOT_ELIGIBLE = "NOT_ELIGIBLE"
 REVIEW_REQUIRED = "REVIEW_REQUIRED"
 
 BORDERLINE_DAYS = 30
+
+DEFAULT_AUDIT_PATH = Path("audit") / "escalations.jsonl"
 
 
 def months_between(start: date, end: date) -> int:
@@ -260,3 +281,69 @@ def check_request_eligibility(
 
 def _held_units(employee: Employee, catalogue_item: str) -> list[Any]:
     return [rec for rec in employee.equipment if normalize_name(rec.item) == catalogue_item]
+
+
+def flag_for_human_review(
+    employee_id: str,
+    item: str,
+    reason_code: str,
+    reason: str,
+    *,
+    store: Store,
+    request_id: str | None = None,
+    audit_path: Path = DEFAULT_AUDIT_PATH,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Record an escalation as one JSON line in the audit file and return a ticket ID.
+
+    An unknown employee is still recorded, since identity problems are a reason to
+    escalate. An empty reason or an unknown reason code is rejected without writing.
+    """
+    now = now or datetime.now(UTC)
+    code = reason_code.strip().upper()
+    if code not in ESCALATION_REASON_CODES:
+        return {
+            "flagged": False,
+            "error": INVALID_REASON_CODE,
+            "message": f"Unknown reason code '{reason_code}'",
+            "valid_reason_codes": sorted(ESCALATION_REASON_CODES),
+        }
+    if not reason.strip():
+        return {
+            "flagged": False,
+            "error": EMPTY_REASON,
+            "message": "A reason for human review is required",
+        }
+
+    employee = store.get_employee(employee_id) if employee_id.strip() else None
+    ticket_id = f"ESC-{now:%Y%m%d}-{uuid.uuid4().hex[:8].upper()}"
+    entry = {
+        "ticket_id": ticket_id,
+        "created_at": now.isoformat(),
+        "request_id": request_id,
+        "employee_id": employee.employee_id if employee else normalize_employee_id(employee_id),
+        "employee_found": employee is not None,
+        "role": employee.role if employee else None,
+        "item": item,
+        "reason_code": code,
+        "reason": reason.strip(),
+        "policy_version": store.policy_version,
+        "data_version": store.data_version,
+    }
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    with audit_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+    return {
+        "flagged": True,
+        "status": "ESCALATED",
+        "ticket_id": ticket_id,
+        "created_at": entry["created_at"],
+        "request_id": request_id,
+        "employee_id": entry["employee_id"],
+        "employee_found": entry["employee_found"],
+        "item": item,
+        "reason_code": code,
+        "message": f"Ticket {ticket_id} created for human review",
+        "policy_version": store.policy_version,
+    }
