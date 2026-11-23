@@ -19,31 +19,36 @@ async def server_session() -> AsyncIterator[ClientSession]:
             yield session
 
 
-async def call(session: ClientSession, employee_id: str) -> dict[str, Any]:
-    result = await session.call_tool("get_employee_info", {"employee_id": employee_id})
+async def call(session: ClientSession, tool: str, **arguments: str) -> dict[str, Any]:
+    result = await session.call_tool(tool, arguments)
     assert not result.is_error
     assert result.structured_content is not None
     return dict(result.structured_content)
 
 
 @pytest.mark.integration
-async def test_lists_get_employee_info_tool() -> None:
+async def test_lists_tools_with_schemas() -> None:
     async with server_session() as session:
         tools = await session.list_tools()
 
-    names = [tool.name for tool in tools.tools]
-    assert names == ["get_employee_info"]
+    by_name = {tool.name: tool for tool in tools.tools}
+    assert set(by_name) == {"get_employee_info", "get_policy_limits"}
+    for tool in by_name.values():
+        assert tool.description
 
-    tool = tools.tools[0]
-    assert tool.description
-    assert tool.input_schema["required"] == ["employee_id"]
-    assert tool.input_schema["properties"]["employee_id"]["type"] == "string"
+    employee = by_name["get_employee_info"].input_schema
+    assert employee["required"] == ["employee_id"]
+    assert employee["properties"]["employee_id"]["type"] == "string"
+
+    policy = by_name["get_policy_limits"].input_schema
+    assert policy["required"] == ["role"]
+    assert policy["properties"]["role"]["type"] == "string"
 
 
 @pytest.mark.integration
 async def test_known_employee() -> None:
     async with server_session() as session:
-        result = await call(session, "E001")
+        result = await call(session, "get_employee_info", employee_id="E001")
 
     assert result["found"] is True
     assert result["employee_id"] == "E001"
@@ -56,7 +61,7 @@ async def test_known_employee() -> None:
 @pytest.mark.integration
 async def test_unknown_employee() -> None:
     async with server_session() as session:
-        result = await call(session, "E999")
+        result = await call(session, "get_employee_info", employee_id="E999")
 
     assert result["found"] is False
     assert result["error"] == "EMPLOYEE_NOT_FOUND"
@@ -66,7 +71,29 @@ async def test_unknown_employee() -> None:
 @pytest.mark.integration
 async def test_lower_case_id_matches_through_server() -> None:
     async with server_session() as session:
-        result = await call(session, "e001")
+        result = await call(session, "get_employee_info", employee_id="e001")
 
     assert result["found"] is True
     assert result["employee_id"] == "E001"
+
+
+@pytest.mark.integration
+async def test_policy_limits_known_role() -> None:
+    async with server_session() as session:
+        result = await call(session, "get_policy_limits", role="Contractor")
+
+    assert result["found"] is True
+    assert result["role"] == "contractor"
+    assert result["limits"]["monitor"] == {"max_quantity": 1, "refresh_months": 36}
+    assert result["not_eligible"] == ["laptop", "docking_station"]
+    assert result["policy_version"] == "2026.1"
+
+
+@pytest.mark.integration
+async def test_policy_limits_unknown_role() -> None:
+    async with server_session() as session:
+        result = await call(session, "get_policy_limits", role="intern")
+
+    assert result["found"] is False
+    assert result["error"] == "ROLE_NOT_FOUND"
+    assert result["known_roles"] == ["contractor", "engineer", "manager", "standard"]

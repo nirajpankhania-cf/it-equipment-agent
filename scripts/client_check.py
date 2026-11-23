@@ -1,9 +1,9 @@
-"""Milestone 2 check: call get_employee_info on the real server over stdio.
+"""Milestone 2 and 3 check: call each tool on the real server over stdio.
 
     uv run python scripts/client_check.py
 
-Launches src/equipment/server.py as a subprocess, lists its tools, then looks up one
-known and one unknown employee ID and prints both structured results.
+Launches src/equipment/server.py as a subprocess, lists its tools, then calls each
+tool with one known and one unknown value and prints the structured results.
 """
 
 import asyncio
@@ -13,8 +13,12 @@ import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-KNOWN_ID = "E001"
-UNKNOWN_ID = "E999"
+CALLS = [
+    ("get_employee_info", {"employee_id": "E001"}),
+    ("get_employee_info", {"employee_id": "E999"}),
+    ("get_policy_limits", {"role": "contractor"}),
+    ("get_policy_limits", {"role": "intern"}),
+]
 
 
 async def main() -> None:
@@ -26,9 +30,9 @@ async def main() -> None:
             tools = await session.list_tools()
             print("tools:", [tool.name for tool in tools.tools])
 
-            for employee_id in (KNOWN_ID, UNKNOWN_ID):
-                result = await session.call_tool("get_employee_info", {"employee_id": employee_id})
-                print(f"\nget_employee_info({employee_id!r}) is_error={result.is_error}")
+            for tool_name, arguments in CALLS:
+                result = await session.call_tool(tool_name, arguments)
+                print(f"\n{tool_name}({arguments}) is_error={result.is_error}")
                 print(json.dumps(result.structured_content, indent=2))
 
 
