@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from datetime import date
 from functools import cache
 from typing import Any
 
@@ -60,6 +61,27 @@ def get_policy_limits(role: str) -> dict[str, Any]:
     Returns found=false with error ROLE_NOT_FOUND if the role has no policy."""
     result = core.get_policy_limits(role, store=get_store())
     log.info("get_policy_limits role=%r found=%s", role, result["found"])
+    return result
+
+
+@mcp.tool()
+def check_request_eligibility(
+    employee_id: str, item: str, as_of: date | None = None
+) -> dict[str, Any]:
+    """Apply the equipment policy for one employee and one item. Returns status ELIGIBLE,
+    NOT_ELIGIBLE, or REVIEW_REQUIRED with a reason_code and, where relevant, the next
+    eligible date. REVIEW_REQUIRED must be escalated, never decided. Pass as_of as an
+    ISO date (YYYY-MM-DD) to evaluate as of the request's submission date; defaults to
+    today."""
+    result = core.check_request_eligibility(employee_id, item, store=get_store(), as_of=as_of)
+    log.info(
+        "check_request_eligibility employee_id=%r item=%r as_of=%s status=%s reason=%s",
+        employee_id,
+        item,
+        result["as_of"],
+        result["status"],
+        result["reason_code"],
+    )
     return result
 
 
