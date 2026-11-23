@@ -1,0 +1,20 @@
+# Secrets
+.env
+
+# Run artefacts
+logs/
+audit/
+
+# Environments
+.venv/
+
+# Caches and build output
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+.DS_Store
