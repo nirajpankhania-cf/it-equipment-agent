@@ -13,11 +13,16 @@ import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+AS_OF = "2026-11-23"
+
 CALLS = [
     ("get_employee_info", {"employee_id": "E001"}),
     ("get_employee_info", {"employee_id": "E999"}),
     ("get_policy_limits", {"role": "contractor"}),
     ("get_policy_limits", {"role": "intern"}),
+    ("check_request_eligibility", {"employee_id": "E001", "item": "laptop", "as_of": AS_OF}),
+    ("check_request_eligibility", {"employee_id": "E002", "item": "monitor", "as_of": AS_OF}),
+    ("check_request_eligibility", {"employee_id": "E999", "item": "headset", "as_of": AS_OF}),
 ]
 
 

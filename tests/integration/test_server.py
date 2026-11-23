@@ -3,11 +3,14 @@
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import date
 from typing import Any
 
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+AS_OF = "2026-11-23"
 
 
 @asynccontextmanager
@@ -32,7 +35,7 @@ async def test_lists_tools_with_schemas() -> None:
         tools = await session.list_tools()
 
     by_name = {tool.name: tool for tool in tools.tools}
-    assert set(by_name) == {"get_employee_info", "get_policy_limits"}
+    assert set(by_name) == {"get_employee_info", "get_policy_limits", "check_request_eligibility"}
     for tool in by_name.values():
         assert tool.description
 
@@ -43,6 +46,10 @@ async def test_lists_tools_with_schemas() -> None:
     policy = by_name["get_policy_limits"].input_schema
     assert policy["required"] == ["role"]
     assert policy["properties"]["role"]["type"] == "string"
+
+    eligibility = by_name["check_request_eligibility"].input_schema
+    assert eligibility["required"] == ["employee_id", "item"]
+    assert "as_of" in eligibility["properties"]
 
 
 @pytest.mark.integration
@@ -97,3 +104,61 @@ async def test_policy_limits_unknown_role() -> None:
     assert result["found"] is False
     assert result["error"] == "ROLE_NOT_FOUND"
     assert result["known_roles"] == ["contractor", "engineer", "manager", "standard"]
+
+
+@pytest.mark.integration
+async def test_eligibility_eligible_by_age() -> None:
+    async with server_session() as session:
+        result = await call(
+            session, "check_request_eligibility", employee_id="E001", item="laptop", as_of=AS_OF
+        )
+
+    assert result["status"] == "ELIGIBLE"
+    assert result["reason_code"] == "REFRESH_DUE"
+    assert result["as_of"] == AS_OF
+    assert result["next_eligible_date"] == "2026-03-14"
+
+
+@pytest.mark.integration
+async def test_eligibility_denied_with_next_date() -> None:
+    async with server_session() as session:
+        result = await call(
+            session, "check_request_eligibility", employee_id="E002", item="monitor", as_of=AS_OF
+        )
+
+    assert result["status"] == "NOT_ELIGIBLE"
+    assert result["reason_code"] == "WITHIN_REFRESH_INTERVAL"
+    assert result["next_eligible_date"] == "2028-09-15"
+
+
+@pytest.mark.integration
+async def test_eligibility_unknown_employee_requires_review() -> None:
+    async with server_session() as session:
+        result = await call(
+            session, "check_request_eligibility", employee_id="E999", item="headset", as_of=AS_OF
+        )
+
+    assert result["found"] is False
+    assert result["status"] == "REVIEW_REQUIRED"
+    assert result["reason_code"] == "EMPLOYEE_NOT_FOUND"
+
+
+@pytest.mark.integration
+async def test_eligibility_as_of_defaults_to_today() -> None:
+    async with server_session() as session:
+        result = await call(session, "check_request_eligibility", employee_id="E005", item="laptop")
+
+    assert result["status"] == "NOT_ELIGIBLE"
+    assert result["reason_code"] == "ROLE_NOT_ENTITLED"
+    assert result["as_of"] == date.today().isoformat()
+
+
+@pytest.mark.integration
+async def test_eligibility_rejects_malformed_date() -> None:
+    async with server_session() as session:
+        result = await session.call_tool(
+            "check_request_eligibility",
+            {"employee_id": "E001", "item": "laptop", "as_of": "not-a-date"},
+        )
+
+    assert result.is_error
