@@ -1,9 +1,10 @@
-"""Milestone 2 check: call get_employee_info on the real server over stdio.
+"""Milestone 2 and 3 check: call each tool on the real server over stdio.
 
     uv run python scripts/client_check.py
 
-Launches src/equipment/server.py as a subprocess, lists its tools, then looks up one
-known and one unknown employee ID and prints both structured results.
+Launches src/equipment/server.py as a subprocess, lists its tools, then calls each
+tool with one known and one unknown value and prints the structured results.
+The flag_for_human_review call appends a real line to audit/escalations.jsonl.
 """
 
 import asyncio
@@ -13,8 +14,31 @@ import sys
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-KNOWN_ID = "E001"
-UNKNOWN_ID = "E999"
+AS_OF = "2026-11-23"
+
+CALLS = [
+    ("get_employee_info", {"employee_id": "E001"}),
+    ("get_employee_info", {"employee_id": "E999"}),
+    ("get_policy_limits", {"role": "contractor"}),
+    ("get_policy_limits", {"role": "intern"}),
+    ("check_request_eligibility", {"employee_id": "E001", "item": "laptop", "as_of": AS_OF}),
+    ("check_request_eligibility", {"employee_id": "E002", "item": "monitor", "as_of": AS_OF}),
+    ("check_request_eligibility", {"employee_id": "E999", "item": "headset", "as_of": AS_OF}),
+    (
+        "flag_for_human_review",
+        {
+            "employee_id": "E003",
+            "item": "laptop",
+            "reason_code": "EXCEPTION_CLAIMED",
+            "reason": "Requester reports a cracked screen; damage cannot be verified from records",
+            "request_id": "client-check",
+        },
+    ),
+    (
+        "flag_for_human_review",
+        {"employee_id": "E003", "item": "laptop", "reason_code": "EXCEPTION_CLAIMED", "reason": ""},
+    ),
+]
 
 
 async def main() -> None:
@@ -26,9 +50,9 @@ async def main() -> None:
             tools = await session.list_tools()
             print("tools:", [tool.name for tool in tools.tools])
 
-            for employee_id in (KNOWN_ID, UNKNOWN_ID):
-                result = await session.call_tool("get_employee_info", {"employee_id": employee_id})
-                print(f"\nget_employee_info({employee_id!r}) is_error={result.is_error}")
+            for tool_name, arguments in CALLS:
+                result = await session.call_tool(tool_name, arguments)
+                print(f"\n{tool_name}({arguments}) is_error={result.is_error}")
                 print(json.dumps(result.structured_content, indent=2))
 
 
