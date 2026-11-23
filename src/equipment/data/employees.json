@@ -1,0 +1,108 @@
+{
+  "version": "2026.11",
+  "effective_date": "2026-11-01",
+  "employees": [
+    {
+      "employee_id": "E001",
+      "name": "Alice Morgan",
+      "role": "standard",
+      "start_date": "2021-06-01",
+      "equipment": [
+        {"item": "laptop", "issued_date": "2022-03-14", "asset_tag": "LT-0001"},
+        {"item": "keyboard", "issued_date": "2022-03-14", "asset_tag": "KB-0001"},
+        {"item": "mouse", "issued_date": "2022-03-14", "asset_tag": "MS-0001"}
+      ]
+    },
+    {
+      "employee_id": "E002",
+      "name": "Ben Okafor",
+      "role": "standard",
+      "start_date": "2025-09-15",
+      "equipment": [
+        {"item": "laptop", "issued_date": "2025-09-15", "asset_tag": "LT-0002"},
+        {"item": "monitor", "issued_date": "2025-09-15", "asset_tag": "MN-0002"}
+      ]
+    },
+    {
+      "employee_id": "E003",
+      "name": "Chloe Dubois",
+      "role": "manager",
+      "start_date": "2019-02-11",
+      "equipment": [
+        {"item": "laptop", "issued_date": "2026-03-20", "asset_tag": "LT-0003"},
+        {"item": "monitor", "issued_date": "2024-05-02", "asset_tag": "MN-0003"},
+        {"item": "docking_station", "issued_date": "2024-05-02", "asset_tag": "DS-0003"}
+      ]
+    },
+    {
+      "employee_id": "E004",
+      "name": "Dev Patel",
+      "role": "engineer",
+      "start_date": "2022-08-01",
+      "equipment": [
+        {"item": "laptop", "issued_date": "2024-08-05", "asset_tag": "LT-0004"},
+        {"item": "monitor", "issued_date": "2024-08-05", "asset_tag": "MN-0004A"},
+        {"item": "monitor", "issued_date": "2024-08-05", "asset_tag": "MN-0004B"},
+        {"item": "headset", "issued_date": "2024-08-05", "asset_tag": "HS-0004"}
+      ]
+    },
+    {
+      "employee_id": "E005",
+      "name": "Elena Rossi",
+      "role": "contractor",
+      "start_date": "2023-11-01",
+      "equipment": [
+        {"item": "monitor", "issued_date": "2023-11-06", "asset_tag": "MN-0005"},
+        {"item": "headset", "issued_date": "2024-01-10", "asset_tag": "HS-0005"}
+      ]
+    },
+    {
+      "employee_id": "E006",
+      "name": "Farah Haddad",
+      "role": "engineer",
+      "start_date": "2020-04-20",
+      "equipment": [
+        {"item": "laptop", "issued_date": null, "asset_tag": "LT-0006", "data_quality": "incomplete"},
+        {"item": "monitor", "issued_date": "2023-01-16", "asset_tag": "MN-0006"}
+      ]
+    },
+    {
+      "employee_id": "E007",
+      "name": "Grace Lindqvist",
+      "role": "standard",
+      "start_date": "2026-10-01",
+      "equipment": []
+    },
+    {
+      "employee_id": "E008",
+      "name": "Hiro Tanaka",
+      "role": "manager",
+      "start_date": "2018-09-03",
+      "equipment": [
+        {"item": "laptop", "issued_date": "2024-12-20", "asset_tag": "LT-0008"},
+        {"item": "monitor", "issued_date": "2022-10-10", "asset_tag": "MN-0008"},
+        {"item": "mouse", "issued_date": "2024-12-20", "asset_tag": "MS-0008"}
+      ]
+    },
+    {
+      "employee_id": "E009",
+      "name": "Isla Campbell",
+      "role": "engineer",
+      "start_date": "2023-11-20",
+      "equipment": [
+        {"item": "laptop", "issued_date": "2023-11-23", "asset_tag": "LT-0009"},
+        {"item": "docking_station", "issued_date": "2023-11-23", "asset_tag": "DS-0009"}
+      ]
+    },
+    {
+      "employee_id": "E010",
+      "name": "Jonas Weber",
+      "role": "contractor",
+      "start_date": "2025-12-01",
+      "equipment": [
+        {"item": "keyboard", "issued_date": "2026-01-05", "asset_tag": "KB-0010"},
+        {"item": "mouse", "issued_date": "2026-01-05", "asset_tag": "MS-0010"}
+      ]
+    }
+  ]
+}

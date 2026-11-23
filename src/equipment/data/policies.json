@@ -1,0 +1,37 @@
+{
+  "version": "2026.1",
+  "effective_date": "2026-01-01",
+  "catalogue": ["laptop", "monitor", "keyboard", "mouse", "headset", "docking_station"],
+  "policies": {
+    "standard": {
+      "laptop": {"max_quantity": 1, "refresh_months": 48},
+      "monitor": {"max_quantity": 1, "refresh_months": 36},
+      "keyboard": {"max_quantity": 1, "refresh_months": 24},
+      "mouse": {"max_quantity": 1, "refresh_months": 24},
+      "headset": {"max_quantity": 1, "refresh_months": 24},
+      "docking_station": {"max_quantity": 1, "refresh_months": 36}
+    },
+    "engineer": {
+      "laptop": {"max_quantity": 1, "refresh_months": 36},
+      "monitor": {"max_quantity": 2, "refresh_months": 36},
+      "keyboard": {"max_quantity": 1, "refresh_months": 24},
+      "mouse": {"max_quantity": 1, "refresh_months": 24},
+      "headset": {"max_quantity": 1, "refresh_months": 24},
+      "docking_station": {"max_quantity": 1, "refresh_months": 36}
+    },
+    "manager": {
+      "laptop": {"max_quantity": 1, "refresh_months": 24},
+      "monitor": {"max_quantity": 2, "refresh_months": 36},
+      "keyboard": {"max_quantity": 1, "refresh_months": 24},
+      "mouse": {"max_quantity": 1, "refresh_months": 24},
+      "headset": {"max_quantity": 1, "refresh_months": 24},
+      "docking_station": {"max_quantity": 1, "refresh_months": 36}
+    },
+    "contractor": {
+      "monitor": {"max_quantity": 1, "refresh_months": 36},
+      "keyboard": {"max_quantity": 1, "refresh_months": 24},
+      "mouse": {"max_quantity": 1, "refresh_months": 24},
+      "headset": {"max_quantity": 1, "refresh_months": 24}
+    }
+  }
+}
