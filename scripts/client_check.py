@@ -4,6 +4,7 @@
 
 Launches src/equipment/server.py as a subprocess, lists its tools, then calls each
 tool with one known and one unknown value and prints the structured results.
+The flag_for_human_review call appends a real line to audit/escalations.jsonl.
 """
 
 import asyncio
@@ -23,6 +24,20 @@ CALLS = [
     ("check_request_eligibility", {"employee_id": "E001", "item": "laptop", "as_of": AS_OF}),
     ("check_request_eligibility", {"employee_id": "E002", "item": "monitor", "as_of": AS_OF}),
     ("check_request_eligibility", {"employee_id": "E999", "item": "headset", "as_of": AS_OF}),
+    (
+        "flag_for_human_review",
+        {
+            "employee_id": "E003",
+            "item": "laptop",
+            "reason_code": "EXCEPTION_CLAIMED",
+            "reason": "Requester reports a cracked screen; damage cannot be verified from records",
+            "request_id": "client-check",
+        },
+    ),
+    (
+        "flag_for_human_review",
+        {"employee_id": "E003", "item": "laptop", "reason_code": "EXCEPTION_CLAIMED", "reason": ""},
+    ),
 ]
 
 

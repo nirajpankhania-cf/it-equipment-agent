@@ -1,9 +1,12 @@
 """Start the real MCP server over stdio and exercise it through an MCP client."""
 
+import json
+import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -14,8 +17,11 @@ AS_OF = "2026-11-23"
 
 
 @asynccontextmanager
-async def server_session() -> AsyncIterator[ClientSession]:
-    params = StdioServerParameters(command=sys.executable, args=["-m", "equipment.server"])
+async def server_session(audit_path: Path | None = None) -> AsyncIterator[ClientSession]:
+    env = dict(os.environ)
+    if audit_path is not None:
+        env["EQUIPMENT_AUDIT_PATH"] = str(audit_path)
+    params = StdioServerParameters(command=sys.executable, args=["-m", "equipment.server"], env=env)
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -35,7 +41,12 @@ async def test_lists_tools_with_schemas() -> None:
         tools = await session.list_tools()
 
     by_name = {tool.name: tool for tool in tools.tools}
-    assert set(by_name) == {"get_employee_info", "get_policy_limits", "check_request_eligibility"}
+    assert set(by_name) == {
+        "get_employee_info",
+        "get_policy_limits",
+        "check_request_eligibility",
+        "flag_for_human_review",
+    }
     for tool in by_name.values():
         assert tool.description
 
@@ -50,6 +61,11 @@ async def test_lists_tools_with_schemas() -> None:
     eligibility = by_name["check_request_eligibility"].input_schema
     assert eligibility["required"] == ["employee_id", "item"]
     assert "as_of" in eligibility["properties"]
+
+    flag = by_name["flag_for_human_review"].input_schema
+    assert flag["required"] == ["employee_id", "item", "reason_code", "reason"]
+    assert "request_id" in flag["properties"]
+    assert "audit_path" not in flag["properties"]
 
 
 @pytest.mark.integration
@@ -162,3 +178,47 @@ async def test_eligibility_rejects_malformed_date() -> None:
         )
 
     assert result.is_error
+
+
+@pytest.mark.integration
+async def test_flag_writes_audit_entry_in_server_process(tmp_path: Path) -> None:
+    audit_path = tmp_path / "audit" / "escalations.jsonl"
+    async with server_session(audit_path) as session:
+        result = await call(
+            session,
+            "flag_for_human_review",
+            employee_id="E003",
+            item="laptop",
+            reason_code="EXCEPTION_CLAIMED",
+            reason="Cracked screen reported",
+            request_id="req-int-1",
+        )
+
+    assert result["flagged"] is True
+    assert result["ticket_id"].startswith("ESC-")
+
+    lines = audit_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["ticket_id"] == result["ticket_id"]
+    assert entry["request_id"] == "req-int-1"
+    assert entry["employee_id"] == "E003"
+    assert entry["reason_code"] == "EXCEPTION_CLAIMED"
+
+
+@pytest.mark.integration
+async def test_flag_rejects_empty_reason_without_writing(tmp_path: Path) -> None:
+    audit_path = tmp_path / "escalations.jsonl"
+    async with server_session(audit_path) as session:
+        result = await call(
+            session,
+            "flag_for_human_review",
+            employee_id="E003",
+            item="laptop",
+            reason_code="EXCEPTION_CLAIMED",
+            reason="  ",
+        )
+
+    assert result["flagged"] is False
+    assert result["error"] == "EMPTY_REASON"
+    assert not audit_path.exists()
