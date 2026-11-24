@@ -64,6 +64,7 @@ Never decide automatically when any of these holds. Each has a reason code so te
 | `BORDERLINE_TIMING` | The employee is within 30 days of becoming eligible |
 | `DATA_INCOMPLETE` | The equipment record lacks an issue date, or the request contradicts the record (for example "my laptop is 4 years old" against a record showing 1 year) |
 | `REFLECTION_FAILED` | The agent could not produce a grounded draft after one revision |
+| `GUARDRAIL_BLOCKED` | The code guardrail rejected the agent's decision: an approval or denial with no matching eligibility result, an escalation without a real ticket, no decision, or the step cap reached |
 
 Every escalation writes one audit entry and returns a ticket ID, which the response must include.
 

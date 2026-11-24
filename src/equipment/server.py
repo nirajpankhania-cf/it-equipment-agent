@@ -97,8 +97,8 @@ def flag_for_human_review(
     """Escalate a request to a human reviewer. Writes an audit entry and returns a ticket
     ID that must be quoted in the response. reason_code must be one of EMPLOYEE_NOT_FOUND,
     ITEM_NOT_IN_CATALOGUE, EXCEPTION_CLAIMED, BORDERLINE_TIMING, DATA_INCOMPLETE,
-    REFLECTION_FAILED. reason is a short plain-language explanation and must not be
-    empty. Pass the request_id so the audit entry can be matched to the trace."""
+    REFLECTION_FAILED, GUARDRAIL_BLOCKED. reason is a short plain-language explanation and
+    must not be empty. Pass the request_id so the audit entry can be matched to the trace."""
     result = core.flag_for_human_review(
         employee_id,
         item,
