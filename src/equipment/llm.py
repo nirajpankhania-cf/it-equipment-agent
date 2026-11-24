@@ -24,6 +24,11 @@ from equipment.observability import RequestLogger
 
 DEFAULT_MODEL = "claude-fable-5-2"
 MAX_TOKENS = 1024
+# Notes the model writes between tool calls come back as progress-update thinking blocks,
+# empty under the default display. "updates" returns their text so the trace shows a
+# Thought before every Action. Beta on every platform, Foundry included.
+THINKING = {"type": "adaptive", "display": "updates"}
+BETA_HEADERS = {"anthropic-beta": "thinking-display-updates-2026-08-18"}
 DEFAULT_PRICING_PATH = Path("pricing.toml")
 
 RESOURCE_VAR = "ANTHROPIC_FOUNDRY_RESOURCE"
@@ -148,6 +153,8 @@ class LLMClient:
             "max_tokens": MAX_TOKENS,
             "system": system,
             "messages": messages,
+            "thinking": THINKING,
+            "extra_headers": BETA_HEADERS,
         }
         if tools:
             kwargs["tools"] = tools
