@@ -8,14 +8,6 @@
 input_per_million = 8.0
 output_per_million = 40.0
 
-[models."claude-opus-5-5"]
-input_per_million = 4.0
-output_per_million = 20.0
-
-[models."claude-sonnet-5-5"]
-input_per_million = 2.0
-output_per_million = 10.0
-
 [budget]
 # Roughly three times the estimated cost of one full five-case eval run (plan section 4).
 max_cost_per_run_usd = 2.50

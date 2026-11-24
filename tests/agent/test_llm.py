@@ -117,7 +117,7 @@ class TestLLMClient:
 
         call = fake.calls[0]
         assert call["model"] == "cheap"
-        assert call["max_tokens"] == MAX_TOKENS == 1024
+        assert call["max_tokens"] == MAX_TOKENS == 2048
         assert call["system"] == "sys"
         assert call["messages"] == [{"role": "user", "content": "x"}]
         assert call["tools"] == tools

@@ -423,7 +423,7 @@ class Agent:
             ticket_id=ticket,
             draft_response=(
                 "Your request could not be decided automatically and has been passed to a "
-                f"human reviewer under ticket {ticket}. They will contact you."
+                f"human reviewer under ticket {ticket}. A human will review it."
             ),
             steps=steps,
             guardrail=guardrail,
