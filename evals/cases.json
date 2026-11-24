@@ -1,0 +1,56 @@
+{
+  "version": "1",
+  "note": "Written before any prompt tuning (plan section 8). submitted_on is fixed so results do not drift.",
+  "cases": [
+    {
+      "id": "1-approve-laptop-refresh",
+      "request": {
+        "employee_id": "E001",
+        "item": "laptop",
+        "reason": "My laptop is over four years old and has become very slow. Can I have a replacement?",
+        "submitted_on": "2026-11-24"
+      },
+      "expected": {"decision": "APPROVE", "reason_code": null}
+    },
+    {
+      "id": "2-deny-second-monitor",
+      "request": {
+        "employee_id": "E002",
+        "item": "monitor",
+        "reason": "I would like a second monitor to make working with spreadsheets easier.",
+        "submitted_on": "2026-11-24"
+      },
+      "expected": {"decision": "DENY", "reason_code": null, "next_eligible_date": "2028-09-15"}
+    },
+    {
+      "id": "3-escalate-cracked-screen",
+      "request": {
+        "employee_id": "E003",
+        "item": "laptop",
+        "reason": "The screen on my laptop is cracked and I cannot read half of it. I need a replacement.",
+        "submitted_on": "2026-11-24"
+      },
+      "expected": {"decision": "ESCALATE", "reason_code": "EXCEPTION_CLAIMED"}
+    },
+    {
+      "id": "4-escalate-standing-desk",
+      "request": {
+        "employee_id": "E004",
+        "item": "standing desk",
+        "reason": "I have been getting back pain and would like a standing desk.",
+        "submitted_on": "2026-11-24"
+      },
+      "expected": {"decision": "ESCALATE", "reason_code": "ITEM_NOT_IN_CATALOGUE"}
+    },
+    {
+      "id": "5-escalate-unknown-employee",
+      "request": {
+        "employee_id": "E999",
+        "item": "headset",
+        "reason": "My headset stopped working and I need one for calls.",
+        "submitted_on": "2026-11-24"
+      },
+      "expected": {"decision": "ESCALATE", "reason_code": "EMPLOYEE_NOT_FOUND"}
+    }
+  ]
+}

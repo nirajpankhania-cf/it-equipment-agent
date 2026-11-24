@@ -121,6 +121,8 @@ class TestLLMClient:
         assert call["system"] == "sys"
         assert call["messages"] == [{"role": "user", "content": "x"}]
         assert call["tools"] == tools
+        assert call["thinking"] == {"type": "adaptive", "display": "updates"}
+        assert call["extra_headers"] == {"anthropic-beta": "thinking-display-updates-2026-08-18"}
 
     async def test_omits_tools_when_none(self, logger: RequestLogger) -> None:
         fake = FakeModel([text_message("ok")])
