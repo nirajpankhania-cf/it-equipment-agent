@@ -127,14 +127,17 @@ async def run_cases(cases: list[dict[str, Any]]) -> list[Outcome]:
 def print_summary(outcomes: list[Outcome]) -> None:
     print(f"\n{'=' * 70}\nresults")
     header = (
-        f"{'case':<30} {'expected':<9} {'actual':<9} {'reason code':<22} {'steps':>5} {'ok':>3}"
+        f"{'case':<30} {'expected':<9} {'actual':<9} {'reason code':<22} "
+        f"{'steps':>5} {'reflection':<10} {'ok':>3}"
     )
     print(header)
     print("-" * len(header))
     for o in outcomes:
+        verdict = o.result.reflection["verdict"] if o.result.reflection else "off"
         print(
             f"{o.case_id:<30} {o.expected['decision']:<9} {o.result.decision:<9} "
-            f"{o.result.reason_code:<22} {o.result.steps:>5} {'yes' if o.ok else 'NO':>3}"
+            f"{o.result.reason_code:<22} {o.result.steps:>5} {verdict:<10} "
+            f"{'yes' if o.ok else 'NO':>3}"
         )
         for problem in o.problems:
             print(f"    - {problem}")
@@ -155,11 +158,16 @@ def print_summary(outcomes: list[Outcome]) -> None:
         f"{sum(o.cost_usd for o in outcomes):>8.4f} {sum(o.latency_s for o in outcomes):>6.1f}"
     )
     passed = sum(o.ok for o in outcomes)
-    print(f"\n{passed} of {len(outcomes)} cases reached the expected outcome")
+    verdicts = [o.result.reflection["verdict"] for o in outcomes if o.result.reflection]
+    print(
+        f"\n{passed} of {len(outcomes)} cases reached the expected outcome | reflection: "
+        f"{verdicts.count('CONFIRMED')} confirmed, {verdicts.count('REVISED')} revised, "
+        f"{verdicts.count('FAILED')} failed"
+    )
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n")[0])
     parser.add_argument("--case", help="case id or leading number, e.g. 3")
     args = parser.parse_args()
     outcomes = asyncio.run(run_cases(load_cases(args.case)))

@@ -111,3 +111,20 @@ class FakeModel:
         if not self.responses:
             raise AssertionError("FakeModel has no scripted response left")
         return self.responses.pop(0)
+
+
+def critique_message(
+    *, accurate: bool, commits_beyond_data: bool, issues: list[str] | None = None
+) -> Message:
+    return tool_use_message(
+        "submit_critique",
+        {"accurate": accurate, "commits_beyond_data": commits_beyond_data, "issues": issues or []},
+        thought=None,
+    )
+
+
+def revision_message(draft_response: str) -> Message:
+    return tool_use_message("submit_revision", {"draft_response": draft_response}, thought=None)
+
+
+CLEAN_CRITIQUE = critique_message(accurate=True, commits_beyond_data=False)
