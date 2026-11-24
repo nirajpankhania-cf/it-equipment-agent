@@ -27,12 +27,15 @@ from equipment.agent import (
     Request,
     to_anthropic_tools,
 )
-from equipment.core import GUARDRAIL_BLOCKED
+from equipment.core import GUARDRAIL_BLOCKED, REFLECTION_FAILED
 from equipment.llm import LLMClient, ModelPrice, Pricing
 from equipment.observability import RequestLogger, RunLogger
 from tests.agent.fake_model import (
+    CLEAN_CRITIQUE,
     FakeModel,
+    critique_message,
     decision_message,
+    revision_message,
     text_message,
     tool_use_message,
     tool_uses_message,
@@ -101,6 +104,7 @@ def make_agent(
     llm = LLMClient(logger, model="claude-fable-5-2", pricing=PRICING, create=fake.create)
     out = io.StringIO()
     tools: list[Any] = [{"name": "get_employee_info", "description": "", "input_schema": {}}]
+    kwargs.setdefault("reflect", False)
     agent = Agent(logger, llm, session, tools, out=out, **kwargs)  # type: ignore[arg-type]
     return agent, fake, out
 
@@ -124,8 +128,8 @@ def test_to_anthropic_tools_converts_name_description_and_schema() -> None:
     schema = {"type": "object", "properties": {"employee_id": {"type": "string"}}}
     tools = to_anthropic_tools(
         [
-            mcp_types.Tool(name="get_employee_info", description="Look up", inputSchema=schema),
-            mcp_types.Tool(name="bare", inputSchema={"type": "object"}),
+            mcp_types.Tool(name="get_employee_info", description="Look up", input_schema=schema),
+            mcp_types.Tool(name="bare", input_schema={"type": "object"}),
         ]
     )
     assert tools == [
@@ -448,3 +452,109 @@ class TestGuardrail:
         result = await agent.run(injected)
         assert result.decision == ESCALATE
         assert result.guardrail == UNGROUNDED_APPROVAL
+
+
+class TestReflectionInAgent:
+    DECISION = decision_message(APPROVE, "REFRESH_DUE", "Approved: your laptop will arrive Friday.")
+
+    async def test_confirmed_draft_is_returned_unchanged(self, logger: RequestLogger) -> None:
+        clean = decision_message(APPROVE, "REFRESH_DUE", "Approved: refresh is due.")
+        agent, fake, out = make_agent(
+            logger, [LOOKUP, ELIGIBILITY, clean, CLEAN_CRITIQUE], FakeSession(), reflect=True
+        )
+
+        result = await agent.run(REQUEST)
+
+        assert result.decision == APPROVE
+        assert result.draft_response == "Approved: refresh is due."
+        assert result.reflection is not None
+        assert result.reflection["verdict"] == "CONFIRMED"
+        assert len(fake.calls) == 4
+        assert "--- Reflection ---" in out.getvalue()
+        final = read(logger.run.path)[-1]
+        assert final["event"] == "final_decision"
+        assert final["reflection"] == "CONFIRMED"
+
+    async def test_planted_promise_is_revised(self, logger: RequestLogger) -> None:
+        agent, fake, out = make_agent(
+            logger,
+            [
+                LOOKUP,
+                ELIGIBILITY,
+                self.DECISION,
+                revision_message("Approved: your laptop refresh is due."),
+                CLEAN_CRITIQUE,
+            ],
+            FakeSession(),
+            reflect=True,
+        )
+
+        result = await agent.run(REQUEST)
+
+        assert result.decision == APPROVE
+        assert result.draft_response == "Approved: your laptop refresh is due."
+        assert result.reflection is not None
+        assert result.reflection["verdict"] == "REVISED"
+        assert result.flag_calls == []
+        trace = out.getvalue()
+        assert "Before: Approved: your laptop will arrive Friday." in trace
+        assert "After: Approved: your laptop refresh is due." in trace
+
+    async def test_second_failure_escalates_with_reflection_failed(
+        self, logger: RequestLogger
+    ) -> None:
+        session = FakeSession()
+        agent, _, out = make_agent(
+            logger,
+            [
+                LOOKUP,
+                ELIGIBILITY,
+                self.DECISION,
+                revision_message("Approved: it will arrive next week."),
+            ],
+            session,
+            reflect=True,
+        )
+
+        result = await agent.run(REQUEST)
+
+        assert result.decision == ESCALATE
+        assert result.reason_code == REFLECTION_FAILED
+        assert result.ticket_id == "ESC-001"
+        assert "ESC-001" in result.draft_response
+        assert result.reflection is not None
+        assert result.reflection["verdict"] == "FAILED"
+        flag_args = session.calls_to("flag_for_human_review")
+        assert len(flag_args) == 1
+        assert flag_args[0]["reason_code"] == REFLECTION_FAILED
+        assert "Verdict: FAILED" in out.getvalue()
+        assert any(
+            line["event"] == "reflection" and line["verdict"] == "FAILED"
+            for line in read(logger.run.path)
+        )
+
+    async def test_critique_rejection_triggers_revision(self, logger: RequestLogger) -> None:
+        subtle = decision_message(
+            APPROVE, "REFRESH_DUE", "Approved. You will get the new Pro model."
+        )
+        agent, fake, _ = make_agent(
+            logger,
+            [
+                LOOKUP,
+                ELIGIBILITY,
+                subtle,
+                critique_message(accurate=True, commits_beyond_data=True, issues=["names a model"]),
+                revision_message("Approved: your laptop refresh is due."),
+                CLEAN_CRITIQUE,
+            ],
+            FakeSession(),
+            reflect=True,
+        )
+
+        result = await agent.run(REQUEST)
+
+        assert result.reflection is not None
+        assert result.reflection["verdict"] == "REVISED"
+        assert result.draft_response == "Approved: your laptop refresh is due."
+        purposes = [call["system"][:40] for call in fake.calls]
+        assert len(purposes) == 6

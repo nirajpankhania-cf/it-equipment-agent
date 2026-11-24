@@ -8,7 +8,8 @@ calling the client-side ``submit_decision`` tool. A code guardrail then checks t
 decision against the real observations: an approval or denial needs a matching
 eligibility result and an escalation needs a ticket from a real flag call. Anything
 else is escalated by the guardrail itself, with its own flag call, so every escalation
-carries a genuine ticket ID.
+carries a genuine ticket ID. Reflection (reflection.py) then checks the draft and either
+confirms it, revises it once, or escalates with REFLECTION_FAILED.
 """
 
 from __future__ import annotations
@@ -17,7 +18,6 @@ import asyncio
 import json
 import os
 import sys
-from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Any, cast
 
@@ -27,21 +27,29 @@ from mcp import types as mcp_types
 from mcp.client.stdio import stdio_client
 
 from equipment import core
+from equipment.decisions import (
+    APPROVE,
+    DECISIONS,
+    DENY,
+    ESCALATE,
+    FLAG_TOOL,
+    AgentResult,
+    Observation,
+    Request,
+    eligibility_status,
+    expected_status,
+    real_tickets,
+)
 from equipment.llm import LLMClient, load_environment
 from equipment.observability import RequestLogger, RunLogger
-from equipment.store import normalize_employee_id
+from equipment.reflection import FAILED, REVISED, Reflection
+
+__all__ = ["APPROVE", "DENY", "ESCALATE", "DECISIONS", "AgentResult", "Observation", "Request"]
 
 PROMPT_VERSION = "1.0"
 MAX_STEPS = 8
 
-APPROVE = "APPROVE"
-DENY = "DENY"
-ESCALATE = "ESCALATE"
-DECISIONS = (APPROVE, DENY, ESCALATE)
-
 SUBMIT_DECISION = "submit_decision"
-FLAG_TOOL = "flag_for_human_review"
-ELIGIBILITY_TOOL = "check_request_eligibility"
 
 # Guardrail outcomes, recorded in the result and the audit reason text.
 UNGROUNDED_APPROVAL = "UNGROUNDED_APPROVAL"
@@ -112,55 +120,12 @@ SUBMIT_DECISION_TOOL: ToolParam = {
 }
 
 
-@dataclass(frozen=True)
-class Request:
-    employee_id: str
-    item: str
-    reason: str
-    submitted_on: date
-
-    def as_text(self) -> str:
-        return (
-            f"Employee ID: {self.employee_id}\n"
-            f"Item requested: {self.item}\n"
-            f"Reason given: {self.reason}\n"
-            f"Submitted on: {self.submitted_on.isoformat()}"
-        )
-
-
 DEMO_REQUEST = Request(
     employee_id="E001",
     item="laptop",
     reason="My laptop is over four years old and has become very slow.",
     submitted_on=date(2026, 11, 24),
 )
-
-
-@dataclass
-class Observation:
-    step: int
-    tool: str
-    arguments: dict[str, Any]
-    result: Any
-    is_error: bool
-
-
-@dataclass
-class AgentResult:
-    decision: str
-    reason_code: str
-    ticket_id: str | None
-    draft_response: str
-    steps: int
-    guardrail: str | None
-    observations: list[Observation] = field(default_factory=list)
-
-    @property
-    def flag_calls(self) -> list[Observation]:
-        return [o for o in self.observations if o.tool == FLAG_TOOL]
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
 
 
 def to_anthropic_tools(tools: list[mcp_types.Tool]) -> list[ToolParam]:
@@ -200,39 +165,18 @@ class Guardrail:
         self.request = request
         self.observations = observations
 
-    def eligibility_status(self) -> str | None:
-        """Status of the latest eligibility observation for this employee and item."""
-        for obs in reversed(self.observations):
-            if obs.tool != ELIGIBILITY_TOOL or not isinstance(obs.result, dict):
-                continue
-            if obs.result.get("employee_id") != normalize_employee_id(self.request.employee_id):
-                continue
-            item = obs.result.get("item")
-            if isinstance(item, str) and core.normalize_item(self.request.item, [item]) == item:
-                return cast(str | None, obs.result.get("status"))
-        return None
-
-    def real_tickets(self) -> set[str]:
-        return {
-            obs.result["ticket_id"]
-            for obs in self.observations
-            if obs.tool == FLAG_TOOL
-            and isinstance(obs.result, dict)
-            and obs.result.get("flagged") is True
-        }
-
     def check(self, decision: dict[str, Any] | None) -> str | None:
         """Return the guardrail failure name, or None if the decision is grounded."""
         if decision is None:
             return NO_DECISION
-        status = self.eligibility_status()
-        if decision["decision"] == APPROVE and status != core.ELIGIBLE:
+        status = eligibility_status(self.request, self.observations)
+        needed = expected_status(decision["decision"])
+        if decision["decision"] == APPROVE and status != needed:
             return UNGROUNDED_APPROVAL
-        if decision["decision"] == DENY and status != core.NOT_ELIGIBLE:
+        if decision["decision"] == DENY and status != needed:
             return UNGROUNDED_DENIAL
-        if (
-            decision["decision"] == ESCALATE
-            and decision.get("ticket_id") not in self.real_tickets()
+        if decision["decision"] == ESCALATE and decision.get("ticket_id") not in real_tickets(
+            self.observations
         ):
             return MISSING_TICKET
         return None
@@ -247,6 +191,7 @@ class Agent:
         tools: list[ToolParam],
         *,
         max_steps: int = MAX_STEPS,
+        reflect: bool = True,
         out: Any = None,
     ) -> None:
         self.logger = logger
@@ -254,6 +199,7 @@ class Agent:
         self.session = session
         self.tools = [*tools, SUBMIT_DECISION_TOOL]
         self.max_steps = max_steps
+        self.reflect = reflect
         self.out = out or sys.stdout
 
     def print(self, text: str) -> None:
@@ -370,6 +316,9 @@ class Agent:
         else:
             result = await self._guardrail_escalate(request, decision, observations, steps, failure)
 
+        if self.reflect:
+            result = await self._reflect(request, result)
+
         self.logger.log(
             "final_decision",
             level="WARNING" if result.decision == ESCALATE else "INFO",
@@ -377,6 +326,7 @@ class Agent:
             reason_code=result.reason_code,
             ticket_id=result.ticket_id,
             guardrail=result.guardrail,
+            reflection=result.reflection["verdict"] if result.reflection else None,
             steps=result.steps,
             draft_response=result.draft_response,
             policy_version=_policy_version(observations),
@@ -386,6 +336,25 @@ class Agent:
         if result.guardrail:
             self.print(f"Guardrail: {result.guardrail}")
         self.print(f"Draft response: {result.draft_response}")
+        return result
+
+    async def _reflect(self, request: Request, result: AgentResult) -> AgentResult:
+        outcome = await Reflection(self.llm, self.logger, out=self.out).run(
+            request, result.draft(), result.observations
+        )
+        result.reflection = outcome.to_dict()
+        if outcome.verdict == REVISED:
+            result.draft_response = outcome.final_draft
+        elif outcome.verdict == FAILED:
+            result = await self._escalate_in_code(
+                request,
+                result.observations,
+                result.steps,
+                reason_code=core.REFLECTION_FAILED,
+                reason=f"Reflection failed twice; agent had submitted {result.decision}",
+                guardrail=result.guardrail,
+                reflection=result.reflection,
+            )
         return result
 
     async def _guardrail_escalate(
@@ -398,17 +367,36 @@ class Agent:
     ) -> AgentResult:
         failure = failure or NO_DECISION
         submitted = decision["decision"] if decision else "none"
-        reason = f"Guardrail {failure}: agent submitted {submitted} after {steps} step(s)"
         self.logger.log("guardrail_blocked", level="WARNING", guardrail=failure, submitted=decision)
         self.print(f"Guardrail blocked the decision ({failure}); escalating.")
+        return await self._escalate_in_code(
+            request,
+            observations,
+            steps,
+            reason_code=core.GUARDRAIL_BLOCKED,
+            reason=f"Guardrail {failure}: agent submitted {submitted} after {steps} step(s)",
+            guardrail=failure,
+        )
 
+    async def _escalate_in_code(
+        self,
+        request: Request,
+        observations: list[Observation],
+        steps: int,
+        *,
+        reason_code: str,
+        reason: str,
+        guardrail: str | None,
+        reflection: dict[str, Any] | None = None,
+    ) -> AgentResult:
+        """Escalate from code with a real flag call, so the ticket is genuine."""
         observation = await self._call_tool(
             steps,
             FLAG_TOOL,
             {
                 "employee_id": request.employee_id,
                 "item": request.item,
-                "reason_code": core.GUARDRAIL_BLOCKED,
+                "reason_code": reason_code,
                 "reason": reason,
             },
         )
@@ -418,15 +406,16 @@ class Agent:
         )
         return AgentResult(
             decision=ESCALATE,
-            reason_code=core.GUARDRAIL_BLOCKED,
+            reason_code=reason_code,
             ticket_id=ticket,
             draft_response=(
                 "Your request could not be decided automatically and has been passed to a "
                 f"human reviewer under ticket {ticket}. They will contact you."
             ),
             steps=steps,
-            guardrail=failure,
+            guardrail=guardrail,
             observations=observations,
+            reflection=reflection,
         )
 
 
