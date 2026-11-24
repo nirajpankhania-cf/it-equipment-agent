@@ -186,6 +186,8 @@ class TestLoop:
     async def test_parallel_tool_calls_all_run_and_return_in_one_message(
         self, logger: RequestLogger
     ) -> None:
+        # Parallel calls are disabled via tool_choice, but the loop still handles them
+        # defensively in case the setting is ever dropped or ignored.
         session = FakeSession()
         both = tool_uses_message(
             [

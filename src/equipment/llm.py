@@ -158,6 +158,8 @@ class LLMClient:
         }
         if tools:
             kwargs["tools"] = tools
+            # One tool per turn keeps the trace a strict Thought, Action, Observation sequence.
+            kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
 
         start = time.perf_counter()
         response = await self._create(**kwargs)

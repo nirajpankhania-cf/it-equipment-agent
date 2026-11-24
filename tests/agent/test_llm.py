@@ -121,6 +121,7 @@ class TestLLMClient:
         assert call["system"] == "sys"
         assert call["messages"] == [{"role": "user", "content": "x"}]
         assert call["tools"] == tools
+        assert call["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
         assert call["thinking"] == {"type": "adaptive", "display": "updates"}
         assert call["extra_headers"] == {"anthropic-beta": "thinking-display-updates-2026-08-18"}
 
@@ -129,6 +130,7 @@ class TestLLMClient:
         client = LLMClient(logger, model="cheap", pricing=PRICING, create=fake.create)
         await client.complete(purpose="reflection", step=1, system="s", messages=[])
         assert "tools" not in fake.calls[0]
+        assert "tool_choice" not in fake.calls[0]
 
     async def test_budget_exceeded_raises_after_recording(self, logger: RequestLogger) -> None:
         fake = FakeModel(
