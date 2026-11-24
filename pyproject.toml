@@ -49,3 +49,5 @@ markers = ["integration: starts the real MCP server over stdio"]
 
 [tool.coverage.run]
 source = ["src/equipment"]
+# Measure the MCP server when the integration tests start it as a subprocess.
+patch = ["subprocess"]
