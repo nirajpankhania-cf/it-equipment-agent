@@ -31,6 +31,7 @@ from equipment.decisions import (
     APPROVE,
     DECISIONS,
     DENY,
+    ELIGIBILITY_TOOL,
     ESCALATE,
     FLAG_TOOL,
     AgentResult,
@@ -289,11 +290,17 @@ class Agent:
         return observation
 
     def _complete_arguments(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        """Fill in values the code knows better than the model."""
+        """Fill in values the code knows better than the model.
+
+        The eligibility date is always the request's submission date, whatever the model
+        passed, so a decision cannot be moved forward or back by choosing a different day.
+        """
         if name == FLAG_TOOL:
             arguments = {**arguments, "request_id": self.logger.request_id}
             if self.request is not None:
                 arguments["request"] = self.request.as_text()
+        elif name == ELIGIBILITY_TOOL and self.request is not None:
+            arguments = {**arguments, "as_of": self.request.submitted_on.isoformat()}
         return arguments
 
     async def _finalize(
