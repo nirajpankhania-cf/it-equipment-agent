@@ -28,6 +28,7 @@ CALLS = [
         "flag_for_human_review",
         {
             "employee_id": "E003",
+            "request": "The screen on my laptop is cracked. I need a replacement.",
             "item": "laptop",
             "reason_code": "EXCEPTION_CLAIMED",
             "reason": "Requester reports a cracked screen; damage cannot be verified from records",
@@ -36,7 +37,13 @@ CALLS = [
     ),
     (
         "flag_for_human_review",
-        {"employee_id": "E003", "item": "laptop", "reason_code": "EXCEPTION_CLAIMED", "reason": ""},
+        {
+            "employee_id": "E003",
+            "request": "The screen on my laptop is cracked. I need a replacement.",
+            "item": "laptop",
+            "reason_code": "EXCEPTION_CLAIMED",
+            "reason": "",
+        },
     ),
 ]
 

@@ -63,7 +63,7 @@ async def test_lists_tools_with_schemas() -> None:
     assert "as_of" in eligibility["properties"]
 
     flag = by_name["flag_for_human_review"].input_schema
-    assert flag["required"] == ["employee_id", "item", "reason_code", "reason"]
+    assert flag["required"] == ["employee_id", "request", "item", "reason_code", "reason"]
     assert "request_id" in flag["properties"]
     assert "audit_path" not in flag["properties"]
 
@@ -188,6 +188,7 @@ async def test_flag_writes_audit_entry_in_server_process(tmp_path: Path) -> None
             session,
             "flag_for_human_review",
             employee_id="E003",
+            request="My laptop screen is cracked.",
             item="laptop",
             reason_code="EXCEPTION_CLAIMED",
             reason="Cracked screen reported",
@@ -203,6 +204,7 @@ async def test_flag_writes_audit_entry_in_server_process(tmp_path: Path) -> None
     assert entry["ticket_id"] == result["ticket_id"]
     assert entry["request_id"] == "req-int-1"
     assert entry["employee_id"] == "E003"
+    assert entry["request"] == "My laptop screen is cracked."
     assert entry["reason_code"] == "EXCEPTION_CLAIMED"
 
 
@@ -214,6 +216,7 @@ async def test_flag_rejects_empty_reason_without_writing(tmp_path: Path) -> None
             session,
             "flag_for_human_review",
             employee_id="E003",
+            request="My laptop screen is cracked.",
             item="laptop",
             reason_code="EXCEPTION_CLAIMED",
             reason="  ",

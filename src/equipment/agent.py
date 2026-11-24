@@ -201,11 +201,13 @@ class Agent:
         self.max_steps = max_steps
         self.reflect = reflect
         self.out = out or sys.stdout
+        self.request: Request | None = None
 
     def print(self, text: str) -> None:
         print(text, file=self.out)
 
     async def run(self, request: Request) -> AgentResult:
+        self.request = request
         self.logger.log(
             "request_received",
             employee_id=request.employee_id,
@@ -289,6 +291,8 @@ class Agent:
         """Fill in values the code knows better than the model."""
         if name == FLAG_TOOL:
             arguments = {**arguments, "request_id": self.logger.request_id}
+            if self.request is not None:
+                arguments["request"] = self.request.as_text()
         return arguments
 
     async def _finalize(
@@ -395,6 +399,7 @@ class Agent:
             FLAG_TOOL,
             {
                 "employee_id": request.employee_id,
+                "request": request.as_text(),
                 "item": request.item,
                 "reason_code": reason_code,
                 "reason": reason,

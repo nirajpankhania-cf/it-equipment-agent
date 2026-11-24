@@ -66,7 +66,7 @@ Never decide automatically when any of these holds. Each has a reason code so te
 | `REFLECTION_FAILED` | The agent could not produce a grounded draft after one revision |
 | `GUARDRAIL_BLOCKED` | The code guardrail rejected the agent's decision: an approval or denial with no matching eligibility result, an escalation without a real ticket, no decision, or the step cap reached |
 
-Every escalation writes one audit entry and returns a ticket ID, which the response must include.
+Every escalation writes one audit entry and returns a ticket ID, which the response must include. The audit entry stores the employee's original request text verbatim, alongside the reason code and the agent's reason, so the reviewer sees what was asked without consulting the trace.
 
 ### Deny versus escalate
 

@@ -92,15 +92,23 @@ def check_request_eligibility(
 
 @mcp.tool()
 def flag_for_human_review(
-    employee_id: str, item: str, reason_code: str, reason: str, request_id: str | None = None
+    employee_id: str,
+    request: str,
+    item: str,
+    reason_code: str,
+    reason: str,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Escalate a request to a human reviewer. Writes an audit entry and returns a ticket
-    ID that must be quoted in the response. reason_code must be one of EMPLOYEE_NOT_FOUND,
-    ITEM_NOT_IN_CATALOGUE, EXCEPTION_CLAIMED, BORDERLINE_TIMING, DATA_INCOMPLETE,
-    REFLECTION_FAILED, GUARDRAIL_BLOCKED. reason is a short plain-language explanation and
-    must not be empty. Pass the request_id so the audit entry can be matched to the trace."""
+    ID that must be quoted in the response. request is the employee's original request
+    text, verbatim, so the reviewer sees what was asked. reason_code must be one of
+    EMPLOYEE_NOT_FOUND, ITEM_NOT_IN_CATALOGUE, EXCEPTION_CLAIMED, BORDERLINE_TIMING,
+    DATA_INCOMPLETE, REFLECTION_FAILED, GUARDRAIL_BLOCKED. reason is a short plain-language
+    explanation of why a human is needed. Neither request nor reason may be empty. Pass the
+    request_id so the audit entry can be matched to the trace."""
     result = core.flag_for_human_review(
         employee_id,
+        request,
         item,
         reason_code,
         reason,

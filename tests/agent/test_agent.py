@@ -287,7 +287,9 @@ class TestLoop:
         assert result.decision == ESCALATE
         assert result.ticket_id == "ESC-001"
         assert result.guardrail is None
-        assert session.calls_to("flag_for_human_review")[0]["request_id"] == "req-1"
+        flag_args = session.calls_to("flag_for_human_review")[0]
+        assert flag_args["request_id"] == "req-1"
+        assert flag_args["request"] == REQUEST.as_text()
         assert len(result.flag_calls) == 1
 
     async def test_step_cap_escalates_with_real_ticket(self, logger: RequestLogger) -> None:
@@ -308,6 +310,7 @@ class TestLoop:
         assert flag_args[0]["reason_code"] == GUARDRAIL_BLOCKED
         assert "STEP_CAP" in flag_args[0]["reason"]
         assert flag_args[0]["request_id"] == "req-1"
+        assert flag_args[0]["request"] == REQUEST.as_text()
         assert "step cap of 8 reached" in out.getvalue()
         assert any(line["event"] == "step_cap_reached" for line in read(logger.run.path))
 
