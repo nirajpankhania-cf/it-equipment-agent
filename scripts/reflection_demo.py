@@ -3,9 +3,10 @@
     uv run python scripts/reflection_demo.py
 
 The observations are real: the script calls get_employee_info and
-check_request_eligibility on the server for employee E001's laptop. The draft is planted:
-an approval that promises "your laptop will arrive Friday". Reflection must reject it,
-revise it once, and confirm the revision.
+check_request_eligibility on the server for employee E001's laptop. Two drafts are
+planted. The first promises "your laptop will arrive Friday", which the code date check
+catches. The second has no date but promises a specific model, which only the model
+critique can catch. Reflection must reject each, revise it once, and confirm the revision.
 """
 
 from __future__ import annotations
@@ -29,15 +30,32 @@ REQUEST = Request(
     reason="My laptop is over four years old and has become very slow.",
     submitted_on=date(2026, 11, 24),
 )
-PLANTED = Draft(
-    decision=APPROVE,
-    reason_code="REFRESH_DUE",
-    ticket_id=None,
-    draft_response=(
-        "Good news: your laptop replacement is approved. Your laptop will arrive Friday, "
-        "and IT will set it up for you the same day."
+PLANTED = [
+    (
+        "date promise (caught by the code checks)",
+        Draft(
+            decision=APPROVE,
+            reason_code="REFRESH_DUE",
+            ticket_id=None,
+            draft_response=(
+                "Good news: your laptop replacement is approved. Your laptop will arrive "
+                "Friday, and IT will set it up for you the same day."
+            ),
+        ),
     ),
-)
+    (
+        "model promise, no date (caught only by the critique)",
+        Draft(
+            decision=APPROVE,
+            reason_code="REFRESH_DUE",
+            ticket_id=None,
+            draft_response=(
+                "Good news: your laptop replacement is approved. IT will set up a brand-new "
+                "MacBook Pro for you."
+            ),
+        ),
+    ),
+]
 
 
 async def gather_observations(session: ClientSession) -> list[Observation]:
@@ -73,14 +91,19 @@ async def main() -> None:
 
         print(f"run: {run.run_id} | request: {logger.request_id} | model: {llm.model}")
         print(f"\n{REQUEST.as_text()}")
-        print(f"\nPlanted draft ({PLANTED.decision}, {PLANTED.reason_code}):")
-        print(PLANTED.draft_response)
 
-        outcome = await Reflection(llm, logger).run(REQUEST, PLANTED, observations)
+        outcomes = []
+        for label, draft in PLANTED:
+            print(f"\n{'=' * 70}\nPlanted draft: {label}")
+            print(f"({draft.decision}, {draft.reason_code}) {draft.draft_response}")
+            outcome = await Reflection(llm, logger).run(REQUEST, draft, observations)
+            outcomes.append((label, outcome.verdict))
 
-        print(f"\noutcome: {outcome.verdict}")
+        print(f"\n{'=' * 70}\noutcomes:")
+        for label, verdict in outcomes:
+            print(f"  {verdict:<10} {label}")
         print(
-            f"model calls: {llm.calls} | input tokens: {llm.total_input_tokens} | "
+            f"\nmodel calls: {llm.calls} | input tokens: {llm.total_input_tokens} | "
             f"output tokens: {llm.total_output_tokens} | cost: ${llm.total_cost_usd:.4f}"
         )
         print(f"log: {run.path}")

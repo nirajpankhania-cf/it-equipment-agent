@@ -23,7 +23,7 @@ from dotenv import dotenv_values, load_dotenv
 from equipment.observability import RequestLogger
 
 DEFAULT_MODEL = "claude-fable-5-2"
-MAX_TOKENS = 1024
+MAX_TOKENS = 2048
 # Notes the model writes between tool calls come back as progress-update thinking blocks,
 # empty under the default display. "updates" returns their text so the trace shows a
 # Thought before every Action. Beta on every platform, Foundry included.
@@ -158,6 +158,8 @@ class LLMClient:
         }
         if tools:
             kwargs["tools"] = tools
+            # One tool per turn keeps the trace a strict Thought, Action, Observation sequence.
+            kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
 
         start = time.perf_counter()
         response = await self._create(**kwargs)

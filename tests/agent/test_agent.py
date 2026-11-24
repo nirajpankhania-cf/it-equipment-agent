@@ -186,6 +186,8 @@ class TestLoop:
     async def test_parallel_tool_calls_all_run_and_return_in_one_message(
         self, logger: RequestLogger
     ) -> None:
+        # Parallel calls are disabled via tool_choice, but the loop still handles them
+        # defensively in case the setting is ever dropped or ignored.
         session = FakeSession()
         both = tool_uses_message(
             [
@@ -287,7 +289,9 @@ class TestLoop:
         assert result.decision == ESCALATE
         assert result.ticket_id == "ESC-001"
         assert result.guardrail is None
-        assert session.calls_to("flag_for_human_review")[0]["request_id"] == "req-1"
+        flag_args = session.calls_to("flag_for_human_review")[0]
+        assert flag_args["request_id"] == "req-1"
+        assert flag_args["request"] == REQUEST.as_text()
         assert len(result.flag_calls) == 1
 
     async def test_step_cap_escalates_with_real_ticket(self, logger: RequestLogger) -> None:
@@ -308,6 +312,7 @@ class TestLoop:
         assert flag_args[0]["reason_code"] == GUARDRAIL_BLOCKED
         assert "STEP_CAP" in flag_args[0]["reason"]
         assert flag_args[0]["request_id"] == "req-1"
+        assert flag_args[0]["request"] == REQUEST.as_text()
         assert "step cap of 8 reached" in out.getvalue()
         assert any(line["event"] == "step_cap_reached" for line in read(logger.run.path))
 
@@ -440,6 +445,41 @@ class TestGuardrail:
         assert result.steps == 2
         assert result.ticket_id == "ESC-001"
         assert "(no tool call; stop_reason=end_turn)" in out.getvalue()
+
+    async def test_eligibility_as_of_is_forced_to_submission_date(
+        self, logger: RequestLogger
+    ) -> None:
+        session = FakeSession()
+        later = tool_use_message(
+            "check_request_eligibility",
+            {"employee_id": "E001", "item": "laptop", "as_of": "2027-06-01"},
+            thought="Checking as of next year, when the refresh will be due.",
+        )
+        agent, _, out = make_agent(
+            logger, [LOOKUP, later, decision_message(APPROVE, "REFRESH_DUE", "ok")], session
+        )
+
+        await agent.run(REQUEST)
+
+        eligibility_args = session.calls_to("check_request_eligibility")
+        assert eligibility_args == [
+            {"employee_id": "E001", "item": "laptop", "as_of": "2026-11-24"}
+        ]
+        assert '"as_of": "2026-11-24"' in out.getvalue()
+        assert "2027-06-01" not in out.getvalue()
+
+    async def test_eligibility_as_of_is_added_when_omitted(self, logger: RequestLogger) -> None:
+        session = FakeSession()
+        bare = tool_use_message(
+            "check_request_eligibility", {"employee_id": "E001", "item": "laptop"}
+        )
+        agent, _, _ = make_agent(
+            logger, [LOOKUP, bare, decision_message(APPROVE, "REFRESH_DUE", "ok")], session
+        )
+
+        await agent.run(REQUEST)
+
+        assert session.calls_to("check_request_eligibility")[0]["as_of"] == "2026-11-24"
 
     async def test_request_text_cannot_force_approval(self, logger: RequestLogger) -> None:
         injected = Request(

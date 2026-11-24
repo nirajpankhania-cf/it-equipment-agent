@@ -37,6 +37,7 @@ ESCALATION_REASON_CODES = frozenset(
 )
 
 # flag_for_human_review error codes.
+EMPTY_REQUEST = "EMPTY_REQUEST"
 EMPTY_REASON = "EMPTY_REASON"
 INVALID_REASON_CODE = "INVALID_REASON_CODE"
 
@@ -287,6 +288,7 @@ def _held_units(employee: Employee, catalogue_item: str) -> list[Any]:
 
 def flag_for_human_review(
     employee_id: str,
+    request: str,
     item: str,
     reason_code: str,
     reason: str,
@@ -298,8 +300,10 @@ def flag_for_human_review(
 ) -> dict[str, Any]:
     """Record an escalation as one JSON line in the audit file and return a ticket ID.
 
-    An unknown employee is still recorded, since identity problems are a reason to
-    escalate. An empty reason or an unknown reason code is rejected without writing.
+    ``request`` is the employee's original request text, stored so the reviewer sees what
+    was asked. An unknown employee is still recorded, since identity problems are a reason
+    to escalate. An empty request, an empty reason, or an unknown reason code is rejected
+    without writing.
     """
     now = now or datetime.now(UTC)
     code = reason_code.strip().upper()
@@ -309,6 +313,12 @@ def flag_for_human_review(
             "error": INVALID_REASON_CODE,
             "message": f"Unknown reason code '{reason_code}'",
             "valid_reason_codes": sorted(ESCALATION_REASON_CODES),
+        }
+    if not request.strip():
+        return {
+            "flagged": False,
+            "error": EMPTY_REQUEST,
+            "message": "The employee's original request text is required",
         }
     if not reason.strip():
         return {
@@ -326,6 +336,7 @@ def flag_for_human_review(
         "employee_id": employee.employee_id if employee else normalize_employee_id(employee_id),
         "employee_found": employee is not None,
         "role": employee.role if employee else None,
+        "request": request.strip(),
         "item": item,
         "reason_code": code,
         "reason": reason.strip(),
@@ -344,6 +355,7 @@ def flag_for_human_review(
         "request_id": request_id,
         "employee_id": entry["employee_id"],
         "employee_found": entry["employee_found"],
+        "request": entry["request"],
         "item": item,
         "reason_code": code,
         "message": f"Ticket {ticket_id} created for human review",
