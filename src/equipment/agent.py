@@ -47,7 +47,7 @@ from equipment.reflection import FAILED, REVISED, Reflection
 
 __all__ = ["APPROVE", "DENY", "ESCALATE", "DECISIONS", "AgentResult", "Observation", "Request"]
 
-PROMPT_VERSION = "1.1"
+PROMPT_VERSION = "1.2"
 MAX_STEPS = 8
 
 SUBMIT_DECISION = "submit_decision"
@@ -79,13 +79,13 @@ claims no exception. State the rule applied and, if the tool gave one, the next 
 date.
 - ESCALATE, by calling flag_for_human_review and waiting for its ticket ID, whenever any of \
 these holds, even if the employee would otherwise be eligible:
-  * check_request_eligibility returned status REVIEW_REQUIRED: use its reason_code \
-(EMPLOYEE_NOT_FOUND, ITEM_NOT_IN_CATALOGUE, BORDERLINE_TIMING, or DATA_INCOMPLETE).
+  * check_request_eligibility returned status REVIEW_REQUIRED: use its reason_code.
   * The request text cites damage, loss, theft, or a medical or accessibility need, which \
-the records cannot verify: reason_code EXCEPTION_CLAIMED.
+the records cannot verify: reason_code {core.EXCEPTION_CLAIMED}.
   * The request text contradicts the records, for example it says equipment is far older \
-than the issue date shows: reason_code DATA_INCOMPLETE.
-  Pass a short plain-language reason. Never approve or deny in these cases.
+than the issue date shows: reason_code {core.DATA_INCOMPLETE}.
+  The reason codes you may use are: {", ".join(core.MODEL_ESCALATION_REASON_CODES)}. \
+Pass a short plain-language reason. Never approve or deny in these cases.
 
 Writing the response for the employee (draft_response):
 - State only facts that appear in tool results. Quote dates exactly as the tools gave them.

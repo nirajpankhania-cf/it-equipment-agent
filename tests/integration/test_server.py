@@ -58,6 +58,19 @@ async def test_lists_tools_with_schemas() -> None:
     assert "cannot judge claimed exceptions" in described["check_request_eligibility"]
     assert "not idempotent" in described["flag_for_human_review"]
 
+    # The flag description lists only the codes the model may use.
+    flag_description = described["flag_for_human_review"]
+    for code in (
+        "EMPLOYEE_NOT_FOUND",
+        "ITEM_NOT_IN_CATALOGUE",
+        "EXCEPTION_CLAIMED",
+        "BORDERLINE_TIMING",
+        "DATA_INCOMPLETE",
+    ):
+        assert code in flag_description
+    for code in ("REFLECTION_FAILED", "GUARDRAIL_BLOCKED"):
+        assert code not in flag_description
+
     employee = by_name["get_employee_info"].input_schema
     assert employee["required"] == ["employee_id"]
     assert employee["properties"]["employee_id"]["type"] == "string"

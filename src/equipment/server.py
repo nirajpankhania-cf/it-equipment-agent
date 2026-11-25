@@ -133,7 +133,19 @@ def check_request_eligibility(
     return result
 
 
-@mcp.tool()
+FLAG_DESCRIPTION = (
+    "Escalate a request to a human reviewer. Call it once per request when the request "
+    "must be escalated; it writes an audit entry and is not idempotent. Returns a ticket "
+    "ID that must be quoted in the response. request is the full request as submitted "
+    "(employee ID, item, reason, and submission date), so the reviewer sees what was "
+    f"asked. reason_code must be one of {', '.join(core.MODEL_ESCALATION_REASON_CODES)}. "
+    "reason is a short plain-language explanation of why a human is needed. Neither "
+    "request nor reason may be empty. Pass the request_id so the audit entry can be "
+    "matched to the trace."
+)
+
+
+@mcp.tool(description=FLAG_DESCRIPTION)
 def flag_for_human_review(
     employee_id: EmployeeId,
     request: Annotated[
@@ -178,15 +190,9 @@ def flag_for_human_review(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Escalate a request to a human reviewer. Call it once per request when the request
-    must be escalated; it writes an audit entry and is not idempotent. Returns a ticket
-    ID that must be quoted in the response. request is the full request as submitted
-    (employee ID, item, reason, and submission date), so the reviewer sees what was
-    asked. reason_code must be one of
-    EMPLOYEE_NOT_FOUND, ITEM_NOT_IN_CATALOGUE, EXCEPTION_CLAIMED, BORDERLINE_TIMING,
-    DATA_INCOMPLETE, REFLECTION_FAILED, GUARDRAIL_BLOCKED. reason is a short plain-language
-    explanation of why a human is needed. Neither request nor reason may be empty. Pass the
-    request_id so the audit entry can be matched to the trace."""
+    """See FLAG_DESCRIPTION, which is what the model reads. The reason-code list there is
+    generated from core.MODEL_ESCALATION_REASON_CODES; the tool itself also accepts the
+    internal codes in core.INTERNAL_ESCALATION_REASON_CODES."""
     result = core.flag_for_human_review(
         employee_id,
         request=request,

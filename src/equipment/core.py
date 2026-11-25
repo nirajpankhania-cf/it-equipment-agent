@@ -24,16 +24,21 @@ BORDERLINE_TIMING = "BORDERLINE_TIMING"
 DATA_INCOMPLETE = "DATA_INCOMPLETE"
 REFLECTION_FAILED = "REFLECTION_FAILED"
 GUARDRAIL_BLOCKED = "GUARDRAIL_BLOCKED"
+
+# The codes the model may use when it escalates. Tool descriptions and the system prompt
+# list these, generated from this tuple so the two never drift apart.
+MODEL_ESCALATION_REASON_CODES = (
+    EMPLOYEE_NOT_FOUND,
+    ITEM_NOT_IN_CATALOGUE,
+    EXCEPTION_CLAIMED,
+    BORDERLINE_TIMING,
+    DATA_INCOMPLETE,
+)
+# Codes only the agent's own code uses, when it overrides or abandons the model's draft.
+INTERNAL_ESCALATION_REASON_CODES = (REFLECTION_FAILED, GUARDRAIL_BLOCKED)
+# The tool accepts all of them.
 ESCALATION_REASON_CODES = frozenset(
-    {
-        EMPLOYEE_NOT_FOUND,
-        ITEM_NOT_IN_CATALOGUE,
-        EXCEPTION_CLAIMED,
-        BORDERLINE_TIMING,
-        DATA_INCOMPLETE,
-        REFLECTION_FAILED,
-        GUARDRAIL_BLOCKED,
-    }
+    MODEL_ESCALATION_REASON_CODES + INTERNAL_ESCALATION_REASON_CODES
 )
 
 # flag_for_human_review error codes.

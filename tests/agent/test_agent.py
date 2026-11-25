@@ -125,6 +125,14 @@ def test_prompt_version_is_in_system_prompt() -> None:
     assert "DATA_INCOMPLETE" in SYSTEM_PROMPT
 
 
+def test_prompt_lists_only_the_model_usable_reason_codes() -> None:
+    from equipment.core import INTERNAL_ESCALATION_REASON_CODES, MODEL_ESCALATION_REASON_CODES
+
+    assert ", ".join(MODEL_ESCALATION_REASON_CODES) in SYSTEM_PROMPT
+    for code in INTERNAL_ESCALATION_REASON_CODES:
+        assert code not in SYSTEM_PROMPT
+
+
 def test_to_anthropic_tools_converts_name_description_and_schema() -> None:
     schema = {"type": "object", "properties": {"employee_id": {"type": "string"}}}
     tools = to_anthropic_tools(
