@@ -147,6 +147,110 @@ def test_to_anthropic_tools_converts_name_description_and_schema() -> None:
     ]
 
 
+ELIGIBILITY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "employee_id": {"type": "string"},
+        "item": {"type": "string"},
+        "as_of": {"type": "string", "format": "date"},
+    },
+    "required": ["employee_id", "item"],
+}
+FLAG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "employee_id": {"type": "string"},
+        "request": {"type": "string"},
+        "item": {"type": "string"},
+        "reason_code": {"type": "string"},
+        "reason": {"type": "string"},
+        "request_id": {"type": "string"},
+    },
+    "required": ["employee_id", "request", "item", "reason_code", "reason"],
+}
+
+
+class TestSystemOwnedFields:
+    def test_model_facing_schema_omits_them(self) -> None:
+        tools = to_anthropic_tools(
+            [
+                mcp_types.Tool(name="check_request_eligibility", input_schema=ELIGIBILITY_SCHEMA),
+                mcp_types.Tool(name="flag_for_human_review", input_schema=FLAG_SCHEMA),
+            ]
+        )
+        by_name = {t["name"]: t["input_schema"] for t in tools}
+
+        eligibility = by_name["check_request_eligibility"]
+        assert "as_of" not in eligibility["properties"]
+        assert eligibility["required"] == ["employee_id", "item"]
+
+        flag = by_name["flag_for_human_review"]
+        assert "request" not in flag["properties"]
+        assert "request_id" not in flag["properties"]
+        assert flag["required"] == ["employee_id", "item", "reason_code", "reason"]
+
+    def test_source_schema_is_left_unchanged(self) -> None:
+        tool = mcp_types.Tool(name="flag_for_human_review", input_schema=FLAG_SCHEMA)
+        to_anthropic_tools([tool])
+        assert "request" in tool.input_schema["properties"]
+        assert tool.input_schema["required"] == FLAG_SCHEMA["required"]
+
+    def test_other_tools_are_untouched(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {"role": {"type": "string"}},
+            "required": ["role"],
+        }
+        [tool] = to_anthropic_tools([mcp_types.Tool(name="get_policy_limits", input_schema=schema)])
+        assert tool["input_schema"] == schema
+
+    async def test_calls_still_carry_the_hidden_fields(self, logger: RequestLogger) -> None:
+        session = FakeSession(
+            {"check_request_eligibility": {**ELIGIBLE, "status": "REVIEW_REQUIRED"}}
+        )
+        bare_eligibility = tool_use_message(
+            "check_request_eligibility", {"employee_id": "E001", "item": "laptop"}
+        )
+        bare_flag = tool_use_message(
+            "flag_for_human_review",
+            {
+                "employee_id": "E001",
+                "item": "laptop",
+                "reason_code": "DATA_INCOMPLETE",
+                "reason": "x",
+            },
+        )
+        fake = FakeModel(
+            [
+                LOOKUP,
+                bare_eligibility,
+                bare_flag,
+                decision_message(
+                    ESCALATE, "DATA_INCOMPLETE", "Ticket ESC-001", ticket_id="ESC-001"
+                ),
+            ]
+        )
+        llm = LLMClient(logger, model="claude-fable-5-2", pricing=PRICING, create=fake.create)
+        tools = to_anthropic_tools(
+            [
+                mcp_types.Tool(name="check_request_eligibility", input_schema=ELIGIBILITY_SCHEMA),
+                mcp_types.Tool(name="flag_for_human_review", input_schema=FLAG_SCHEMA),
+            ]
+        )
+        agent = Agent(logger, llm, session, tools, out=io.StringIO(), reflect=False)  # type: ignore[arg-type]
+
+        result = await agent.run(REQUEST)
+
+        assert result.decision == ESCALATE
+        for sent in fake.calls[0]["tools"]:
+            assert "as_of" not in sent["input_schema"].get("properties", {})
+            assert "request_id" not in sent["input_schema"].get("properties", {})
+        assert session.calls_to("check_request_eligibility")[0]["as_of"] == "2026-11-24"
+        flag_call = session.calls_to("flag_for_human_review")[0]
+        assert flag_call["request"] == REQUEST.as_text()
+        assert flag_call["request_id"] == "req-1"
+
+
 class TestLoop:
     async def test_grounded_approval_runs_tools_and_feeds_results_back(
         self, logger: RequestLogger
