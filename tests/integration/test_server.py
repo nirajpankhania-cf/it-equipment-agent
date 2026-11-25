@@ -90,6 +90,23 @@ async def test_lists_tools_with_schemas() -> None:
 
 
 @pytest.mark.integration
+async def test_tool_annotations_mark_reads_and_the_audit_write() -> None:
+    async with server_session() as session:
+        tools = await session.list_tools()
+
+    by_name = {tool.name: tool for tool in tools.tools}
+    for name in ("get_employee_info", "get_policy_limits", "check_request_eligibility"):
+        annotations = by_name[name].annotations
+        assert annotations is not None, name
+        assert annotations.read_only_hint is True, name
+
+    flag = by_name["flag_for_human_review"].annotations
+    assert flag is not None
+    assert flag.read_only_hint is False
+    assert flag.idempotent_hint is False
+
+
+@pytest.mark.integration
 async def test_every_parameter_has_a_description_with_an_example() -> None:
     async with server_session() as session:
         tools = await session.list_tools()

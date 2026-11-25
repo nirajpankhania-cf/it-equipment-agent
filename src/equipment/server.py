@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from equipment import core
@@ -32,6 +33,9 @@ logging.basicConfig(
 log = logging.getLogger("equipment.server")
 
 mcp = MCPServer("it-equipment")
+
+READ_ONLY = ToolAnnotations(read_only_hint=True)
+WRITES_AUDIT = ToolAnnotations(read_only_hint=False, idempotent_hint=False)
 
 CATALOGUE_ITEMS = "laptop, monitor, keyboard, mouse, headset, docking_station"
 ROLES = "standard, engineer, manager, contractor"
@@ -63,7 +67,7 @@ def get_store() -> Store:
     return store
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def get_employee_info(employee_id: EmployeeId) -> dict[str, Any]:
     """Look up an employee by ID. Call this first for every request. Returns role, tenure
     in months, and equipment held with each item's age in months. Returns found=false
@@ -73,7 +77,7 @@ def get_employee_info(employee_id: EmployeeId) -> dict[str, Any]:
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def get_policy_limits(
     role: Annotated[
         str,
@@ -93,7 +97,7 @@ def get_policy_limits(
     return result
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 def check_request_eligibility(
     employee_id: EmployeeId,
     item: Annotated[
@@ -145,7 +149,7 @@ FLAG_DESCRIPTION = (
 )
 
 
-@mcp.tool(description=FLAG_DESCRIPTION)
+@mcp.tool(description=FLAG_DESCRIPTION, annotations=WRITES_AUDIT)
 def flag_for_human_review(
     employee_id: EmployeeId,
     request: Annotated[
