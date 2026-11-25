@@ -65,9 +65,9 @@ def get_store() -> Store:
 
 @mcp.tool()
 def get_employee_info(employee_id: EmployeeId) -> dict[str, Any]:
-    """Look up an employee by ID. Returns role, tenure in months, and equipment held with
-    each item's age in months. Returns found=false with error EMPLOYEE_NOT_FOUND if the
-    ID is not on file."""
+    """Look up an employee by ID. Call this first for every request. Returns role, tenure
+    in months, and equipment held with each item's age in months. Returns found=false
+    with error EMPLOYEE_NOT_FOUND if the ID is not on file."""
     result = core.get_employee_info(employee_id, store=get_store())
     log.info("get_employee_info employee_id=%r found=%s", employee_id, result["found"])
     return result
@@ -85,7 +85,8 @@ def get_policy_limits(
     ],
 ) -> dict[str, Any]:
     """Return the equipment entitlement for a role: for each item the maximum quantity
-    and the refresh interval in months, plus the items the role is not eligible for.
+    and the refresh interval in months, plus the items the role is not eligible for. Use
+    it to see a role's full entitlement, for example to cite the rule in a denial.
     Returns found=false with error ROLE_NOT_FOUND if the role has no policy."""
     result = core.get_policy_limits(role, store=get_store())
     log.info("get_policy_limits role=%r found=%s", role, result["found"])
@@ -114,11 +115,12 @@ def check_request_eligibility(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Apply the equipment policy for one employee and one item. Returns status ELIGIBLE,
-    NOT_ELIGIBLE, or REVIEW_REQUIRED with a reason_code and, where relevant, the next
-    eligible date. REVIEW_REQUIRED must be escalated, never decided. Pass as_of as an
-    ISO date (YYYY-MM-DD) to evaluate as of the request's submission date; defaults to
-    today."""
+    """Apply the equipment policy for one employee and one item. Use it to decide one
+    specific request; it does not see the request text, so it cannot judge claimed
+    exceptions. Returns status ELIGIBLE, NOT_ELIGIBLE, or REVIEW_REQUIRED with a
+    reason_code and, where relevant, the next eligible date. REVIEW_REQUIRED must be
+    escalated, never decided. Pass as_of as an ISO date (YYYY-MM-DD) to evaluate as of
+    the request's submission date; defaults to today."""
     result = core.check_request_eligibility(employee_id, item, store=get_store(), as_of=as_of)
     log.info(
         "check_request_eligibility employee_id=%r item=%r as_of=%s status=%s reason=%s",
@@ -176,7 +178,8 @@ def flag_for_human_review(
         ),
     ] = None,
 ) -> dict[str, Any]:
-    """Escalate a request to a human reviewer. Writes an audit entry and returns a ticket
+    """Escalate a request to a human reviewer. Call it once per request when the request
+    must be escalated; it writes an audit entry and is not idempotent. Returns a ticket
     ID that must be quoted in the response. request is the full request as submitted
     (employee ID, item, reason, and submission date), so the reviewer sees what was
     asked. reason_code must be one of

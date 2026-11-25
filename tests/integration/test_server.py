@@ -50,6 +50,14 @@ async def test_lists_tools_with_schemas() -> None:
     for tool in by_name.values():
         assert tool.description
 
+    # Each description says when to use the tool. Descriptions keep the docstring's line
+    # breaks, so collapse whitespace before matching.
+    described = {name: " ".join(str(tool.description).split()) for name, tool in by_name.items()}
+    assert "Call this first for every request" in described["get_employee_info"]
+    assert "cite the rule in a denial" in described["get_policy_limits"]
+    assert "cannot judge claimed exceptions" in described["check_request_eligibility"]
+    assert "not idempotent" in described["flag_for_human_review"]
+
     employee = by_name["get_employee_info"].input_schema
     assert employee["required"] == ["employee_id"]
     assert employee["properties"]["employee_id"]["type"] == "string"
