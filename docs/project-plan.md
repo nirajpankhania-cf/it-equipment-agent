@@ -153,7 +153,7 @@ Project total (estimate): 5 eval cases × about 15 development runs = 75 request
 
 **Measurement.** `llm.py` is the only place that calls the model. After each call it writes one record: run ID, request ID, step number, purpose (`react` or `reflection`), model, input tokens, output tokens, computed cost, latency, environment. One call site means no call can go unrecorded.
 
-**Controls.** `max_tokens` of 1,024 per call; the 8-step loop cap; at most one revision after reflection; a per-run budget in `pricing.toml` that aborts the run when exceeded. Also set a spending limit on the Foundry resource itself if the portal offers one, since that holds even if the code is wrong.
+**Controls.** `max_tokens` of 2,048 per call; the 8-step loop cap; at most one revision after reflection; a per-run budget in `pricing.toml` that aborts the run when exceeded. Also set a spending limit on the Foundry resource itself if the portal offers one, since that holds even if the code is wrong.
 
 **Reporting.** `run_demo.py` ends with a table of tokens and cost per request and a total. That table goes in the PDF as beyond-scope evidence. You review it; there is no one else on the project.
 

@@ -3,6 +3,9 @@
 # Source: Anthropic's published per-model rates (platform.claude.com/docs/en/about-claude/pricing),
 # which Anthropic states also apply to Claude on Microsoft Foundry, billed through the Azure
 # Marketplace. Confirm against the Foundry pricing page before quoting figures in the write-up.
+#
+# Every MODEL value used in .env needs a [models."<name>"] entry here. llm.py looks the
+# model up at startup and refuses to run without a price, so no call goes uncosted.
 
 [models."claude-fable-5-2"]
 input_per_million = 8.0
