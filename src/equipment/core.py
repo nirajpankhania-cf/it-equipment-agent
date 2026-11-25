@@ -288,11 +288,11 @@ def _held_units(employee: Employee, catalogue_item: str) -> list[Any]:
 
 def flag_for_human_review(
     employee_id: str,
+    *,
     request: str,
     item: str,
     reason_code: str,
     reason: str,
-    *,
     store: Store,
     request_id: str | None = None,
     audit_path: Path = DEFAULT_AUDIT_PATH,
@@ -300,10 +300,11 @@ def flag_for_human_review(
 ) -> dict[str, Any]:
     """Record an escalation as one JSON line in the audit file and return a ticket ID.
 
-    ``request`` is the employee's original request text, stored so the reviewer sees what
-    was asked. An unknown employee is still recorded, since identity problems are a reason
-    to escalate. An empty request, an empty reason, or an unknown reason code is rejected
-    without writing.
+    ``request`` is the full request as submitted, stored so the reviewer sees what was
+    asked. Everything after ``employee_id`` is keyword-only, so a stale positional call
+    fails loudly instead of landing values in the wrong parameters. An unknown employee is
+    still recorded, since identity problems are a reason to escalate. An empty request, an
+    empty reason, or an unknown reason code is rejected without writing.
     """
     now = now or datetime.now(UTC)
     code = reason_code.strip().upper()

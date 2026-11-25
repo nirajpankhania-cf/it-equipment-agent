@@ -91,15 +91,31 @@ class TestNormal:
     def test_defaults_to_current_time(self, store: Store, audit_path: Path) -> None:
         result = flag_for_human_review(
             "E003",
-            "Cracked screen",
-            "laptop",
-            EXCEPTION_CLAIMED,
-            "damage claimed",
+            request="Cracked screen",
+            item="laptop",
+            reason_code=EXCEPTION_CLAIMED,
+            reason="damage claimed",
             store=store,
             audit_path=audit_path,
         )
         assert result["flagged"] is True
         assert datetime.fromisoformat(result["created_at"]).tzinfo is not None
+
+    def test_positional_call_raises_instead_of_misfiling(
+        self, store: Store, audit_path: Path
+    ) -> None:
+        # The old positional order would land item in request and reason in reason_code,
+        # producing INVALID_REASON_CODE and hiding the real cause. Keyword-only prevents it.
+        with pytest.raises(TypeError):
+            flag_for_human_review(  # type: ignore[misc]
+                "E003",
+                "laptop",
+                EXCEPTION_CLAIMED,
+                "damage claimed",
+                store=store,
+                audit_path=audit_path,
+            )
+        assert not audit_path.exists()
 
 
 class TestEdgeCases:

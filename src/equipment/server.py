@@ -109,10 +109,10 @@ def flag_for_human_review(
     request_id so the audit entry can be matched to the trace."""
     result = core.flag_for_human_review(
         employee_id,
-        request,
-        item,
-        reason_code,
-        reason,
+        request=request,
+        item=item,
+        reason_code=reason_code,
+        reason=reason,
         store=get_store(),
         request_id=request_id,
         audit_path=AUDIT_PATH,
