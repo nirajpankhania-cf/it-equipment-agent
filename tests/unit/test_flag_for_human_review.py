@@ -11,7 +11,9 @@ from equipment.core import (
     EMPTY_REQUEST,
     ESCALATION_REASON_CODES,
     EXCEPTION_CLAIMED,
+    INTERNAL_ESCALATION_REASON_CODES,
     INVALID_REASON_CODE,
+    MODEL_ESCALATION_REASON_CODES,
     flag_for_human_review,
 )
 from equipment.store import Store
@@ -91,15 +93,53 @@ class TestNormal:
     def test_defaults_to_current_time(self, store: Store, audit_path: Path) -> None:
         result = flag_for_human_review(
             "E003",
-            "Cracked screen",
-            "laptop",
-            EXCEPTION_CLAIMED,
-            "damage claimed",
+            request="Cracked screen",
+            item="laptop",
+            reason_code=EXCEPTION_CLAIMED,
+            reason="damage claimed",
             store=store,
             audit_path=audit_path,
         )
         assert result["flagged"] is True
         assert datetime.fromisoformat(result["created_at"]).tzinfo is not None
+
+    def test_positional_call_raises_instead_of_misfiling(
+        self, store: Store, audit_path: Path
+    ) -> None:
+        # The old positional order would land item in request and reason in reason_code,
+        # producing INVALID_REASON_CODE and hiding the real cause. Keyword-only prevents it.
+        with pytest.raises(TypeError):
+            flag_for_human_review(  # type: ignore[misc]
+                "E003",
+                "laptop",
+                EXCEPTION_CLAIMED,
+                "damage claimed",
+                store=store,
+                audit_path=audit_path,
+            )
+        assert not audit_path.exists()
+
+
+class TestReasonCodes:
+    def test_model_and_internal_codes_are_disjoint_and_cover_the_set(self) -> None:
+        assert MODEL_ESCALATION_REASON_CODES == (
+            "EMPLOYEE_NOT_FOUND",
+            "ITEM_NOT_IN_CATALOGUE",
+            "EXCEPTION_CLAIMED",
+            "BORDERLINE_TIMING",
+            "DATA_INCOMPLETE",
+        )
+        assert INTERNAL_ESCALATION_REASON_CODES == ("REFLECTION_FAILED", "GUARDRAIL_BLOCKED")
+        assert not set(MODEL_ESCALATION_REASON_CODES) & set(INTERNAL_ESCALATION_REASON_CODES)
+        assert ESCALATION_REASON_CODES == set(MODEL_ESCALATION_REASON_CODES) | set(
+            INTERNAL_ESCALATION_REASON_CODES
+        )
+
+    @pytest.mark.parametrize("code", sorted(ESCALATION_REASON_CODES))
+    def test_tool_accepts_every_code(self, store: Store, audit_path: Path, code: str) -> None:
+        result = flag(store, audit_path, reason_code=code)
+        assert result["flagged"] is True
+        assert result["reason_code"] == code
 
 
 class TestEdgeCases:
@@ -123,7 +163,7 @@ class TestEdgeCases:
         assert result == {
             "flagged": False,
             "error": EMPTY_REQUEST,
-            "message": "The employee's original request text is required",
+            "message": "The full request as submitted is required",
         }
         assert not audit_path.exists()
 

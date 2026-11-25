@@ -24,7 +24,7 @@ The goal is a submission that scores full marks on the rubric and would survive 
 |---|---|---|
 | Rubric evidence | 9 of 9 PDF items captured | Checklist in section 13 |
 | Tool correctness | 4 of 4 tools, each with normal and edge-case tests | `pytest` output |
-| Unit test coverage of `core.py` | 90% or higher line coverage | `pytest --cov` in CI |
+| Test coverage of the `equipment` package | 90% or higher line coverage, enforced in CI only | `pytest --cov-fail-under=90` in CI; a local `pytest` run reports coverage but does not fail on it |
 | Agent decisions | 5 of 5 demo requests reach the expected outcome | Evaluation set, section 8 |
 | No ungrounded approvals | 0 approvals without an `ELIGIBLE` tool result | Guardrail test plus eval assertions |
 | Escalations | Every escalation has a ticket ID and a reason code | Audit log inspection, eval assertions |
@@ -153,7 +153,7 @@ Project total (estimate): 5 eval cases × about 15 development runs = 75 request
 
 **Measurement.** `llm.py` is the only place that calls the model. After each call it writes one record: run ID, request ID, step number, purpose (`react` or `reflection`), model, input tokens, output tokens, computed cost, latency, environment. One call site means no call can go unrecorded.
 
-**Controls.** `max_tokens` of 1,024 per call; the 8-step loop cap; at most one revision after reflection; a per-run budget in `pricing.toml` that aborts the run when exceeded. Also set a spending limit on the Foundry resource itself if the portal offers one, since that holds even if the code is wrong.
+**Controls.** `max_tokens` of 2,048 per call; the 8-step loop cap; at most one revision after reflection; a per-run budget in `pricing.toml` that aborts the run when exceeded. Also set a spending limit on the Foundry resource itself if the portal offers one, since that holds even if the code is wrong.
 
 **Reporting.** `run_demo.py` ends with a table of tokens and cost per request and a total. That table goes in the PDF as beyond-scope evidence. You review it; there is no one else on the project.
 
@@ -267,7 +267,7 @@ One branch per milestone, merged to `main` by pull request with CI required to p
 **CI stages (GitHub Actions, Python 3.12), fast to slow:**
 
 1. Format, lint, type check
-2. Unit tests with coverage, failing under 90% on `core.py`
+2. Unit tests with coverage, failing under 90% over the whole `equipment` package (CI only; local runs report the figure without failing)
 3. Integration tests (real MCP server over stdio)
 4. Agent tests with the fake model
 5. `pip-audit`, non-blocking
@@ -311,7 +311,7 @@ Screenshots are taken as each milestone finishes. Item 2 in particular cannot be
 | 0 | Repository, `pyproject.toml`, CI skeleton, Foundry smoke test, `docs/requirements.md` | 1 | CI green on an empty test; one model call returns text and a cost record; requirements doc committed | 1 | 8 |
 | 1 | Minimal server with one trivial tool, plus client script | 1 | Client lists the tool and prints a real response; terminal screenshotted | 2 | 7 |
 | 2 | `get_employee_info`: plain function, unit tests, MCP wrapper, client call | 1 | Tests pass; callable through the client; data validation in place | 3, 4 | part of 12 and 13 |
-| 3 | The other three tools, one at a time, same pattern | 2 | All unit and integration tests pass; coverage at 90% or more; audit file written by the flag tool | 3, 4 | rest of 12 and 13 |
+| 3 | The other three tools, one at a time, same pattern | 2 | All unit and integration tests pass; coverage at 90% or more in the CI run; audit file written by the flag tool | 3, 4 | rest of 12 and 13 |
 | 4 | Agent making one hardcoded tool call | 2 | Agent connects as MCP client and prints one Observation; JSON log and cost record written | 5 | part of 15 |
 | 5 | ReAct loop, guardrail, final responses | 2 to 3 | Eval cases reach expected outcomes; traces printed; agent tests pass with fake model | 5, 6, 7 | 15 + 10 + 15 |
 | 6 | Reflection | 3 | Code checks and model critique run on every draft; planted-fault test passes; one live confirmation captured | 8 | 10 |

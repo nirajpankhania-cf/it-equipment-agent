@@ -50,6 +50,27 @@ async def test_lists_tools_with_schemas() -> None:
     for tool in by_name.values():
         assert tool.description
 
+    # Each description says when to use the tool. Descriptions keep the docstring's line
+    # breaks, so collapse whitespace before matching.
+    described = {name: " ".join(str(tool.description).split()) for name, tool in by_name.items()}
+    assert "Call this first for every request" in described["get_employee_info"]
+    assert "cite the rule in a denial" in described["get_policy_limits"]
+    assert "cannot judge claimed exceptions" in described["check_request_eligibility"]
+    assert "not idempotent" in described["flag_for_human_review"]
+
+    # The flag description lists only the codes the model may use.
+    flag_description = described["flag_for_human_review"]
+    for code in (
+        "EMPLOYEE_NOT_FOUND",
+        "ITEM_NOT_IN_CATALOGUE",
+        "EXCEPTION_CLAIMED",
+        "BORDERLINE_TIMING",
+        "DATA_INCOMPLETE",
+    ):
+        assert code in flag_description
+    for code in ("REFLECTION_FAILED", "GUARDRAIL_BLOCKED"):
+        assert code not in flag_description
+
     employee = by_name["get_employee_info"].input_schema
     assert employee["required"] == ["employee_id"]
     assert employee["properties"]["employee_id"]["type"] == "string"
@@ -66,6 +87,47 @@ async def test_lists_tools_with_schemas() -> None:
     assert flag["required"] == ["employee_id", "request", "item", "reason_code", "reason"]
     assert "request_id" in flag["properties"]
     assert "audit_path" not in flag["properties"]
+
+
+@pytest.mark.integration
+async def test_tool_annotations_mark_reads_and_the_audit_write() -> None:
+    async with server_session() as session:
+        tools = await session.list_tools()
+
+    by_name = {tool.name: tool for tool in tools.tools}
+    for name in ("get_employee_info", "get_policy_limits", "check_request_eligibility"):
+        annotations = by_name[name].annotations
+        assert annotations is not None, name
+        assert annotations.read_only_hint is True, name
+
+    flag = by_name["flag_for_human_review"].annotations
+    assert flag is not None
+    assert flag.read_only_hint is False
+    assert flag.idempotent_hint is False
+
+
+@pytest.mark.integration
+async def test_every_parameter_has_a_description_with_an_example() -> None:
+    async with server_session() as session:
+        tools = await session.list_tools()
+
+    for tool in tools.tools:
+        for name, prop in tool.input_schema["properties"].items():
+            assert prop.get("description"), f"{tool.name}.{name} has no description"
+            assert "for example" in prop["description"], f"{tool.name}.{name} has no example"
+
+    by_name = {tool.name: tool.input_schema["properties"] for tool in tools.tools}
+    assert "E001" in by_name["get_employee_info"]["employee_id"]["description"]
+    assert "E001" in by_name["flag_for_human_review"]["employee_id"]["description"]
+
+    item = by_name["check_request_eligibility"]["item"]["description"]
+    for catalogue_item in ("laptop", "monitor", "keyboard", "mouse", "headset", "docking_station"):
+        assert catalogue_item in item
+    assert "ITEM_NOT_IN_CATALOGUE" in item
+
+    role = by_name["get_policy_limits"]["role"]["description"]
+    for role_name in ("standard", "engineer", "manager", "contractor"):
+        assert role_name in role
 
 
 @pytest.mark.integration

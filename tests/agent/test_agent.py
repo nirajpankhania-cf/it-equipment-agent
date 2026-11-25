@@ -1,5 +1,6 @@
 """ReAct loop, step cap, and guardrail, driven by the scripted fake model."""
 
+import asyncio
 import io
 import json
 from collections.abc import Callable
@@ -124,6 +125,14 @@ def test_prompt_version_is_in_system_prompt() -> None:
     assert "DATA_INCOMPLETE" in SYSTEM_PROMPT
 
 
+def test_prompt_lists_only_the_model_usable_reason_codes() -> None:
+    from equipment.core import INTERNAL_ESCALATION_REASON_CODES, MODEL_ESCALATION_REASON_CODES
+
+    assert ", ".join(MODEL_ESCALATION_REASON_CODES) in SYSTEM_PROMPT
+    for code in INTERNAL_ESCALATION_REASON_CODES:
+        assert code not in SYSTEM_PROMPT
+
+
 def test_to_anthropic_tools_converts_name_description_and_schema() -> None:
     schema = {"type": "object", "properties": {"employee_id": {"type": "string"}}}
     tools = to_anthropic_tools(
@@ -136,6 +145,110 @@ def test_to_anthropic_tools_converts_name_description_and_schema() -> None:
         {"name": "get_employee_info", "description": "Look up", "input_schema": schema},
         {"name": "bare", "description": "", "input_schema": {"type": "object"}},
     ]
+
+
+ELIGIBILITY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "employee_id": {"type": "string"},
+        "item": {"type": "string"},
+        "as_of": {"type": "string", "format": "date"},
+    },
+    "required": ["employee_id", "item"],
+}
+FLAG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "employee_id": {"type": "string"},
+        "request": {"type": "string"},
+        "item": {"type": "string"},
+        "reason_code": {"type": "string"},
+        "reason": {"type": "string"},
+        "request_id": {"type": "string"},
+    },
+    "required": ["employee_id", "request", "item", "reason_code", "reason"],
+}
+
+
+class TestSystemOwnedFields:
+    def test_model_facing_schema_omits_them(self) -> None:
+        tools = to_anthropic_tools(
+            [
+                mcp_types.Tool(name="check_request_eligibility", input_schema=ELIGIBILITY_SCHEMA),
+                mcp_types.Tool(name="flag_for_human_review", input_schema=FLAG_SCHEMA),
+            ]
+        )
+        by_name = {t["name"]: t["input_schema"] for t in tools}
+
+        eligibility = by_name["check_request_eligibility"]
+        assert "as_of" not in eligibility["properties"]
+        assert eligibility["required"] == ["employee_id", "item"]
+
+        flag = by_name["flag_for_human_review"]
+        assert "request" not in flag["properties"]
+        assert "request_id" not in flag["properties"]
+        assert flag["required"] == ["employee_id", "item", "reason_code", "reason"]
+
+    def test_source_schema_is_left_unchanged(self) -> None:
+        tool = mcp_types.Tool(name="flag_for_human_review", input_schema=FLAG_SCHEMA)
+        to_anthropic_tools([tool])
+        assert "request" in tool.input_schema["properties"]
+        assert tool.input_schema["required"] == FLAG_SCHEMA["required"]
+
+    def test_other_tools_are_untouched(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {"role": {"type": "string"}},
+            "required": ["role"],
+        }
+        [tool] = to_anthropic_tools([mcp_types.Tool(name="get_policy_limits", input_schema=schema)])
+        assert tool["input_schema"] == schema
+
+    async def test_calls_still_carry_the_hidden_fields(self, logger: RequestLogger) -> None:
+        session = FakeSession(
+            {"check_request_eligibility": {**ELIGIBLE, "status": "REVIEW_REQUIRED"}}
+        )
+        bare_eligibility = tool_use_message(
+            "check_request_eligibility", {"employee_id": "E001", "item": "laptop"}
+        )
+        bare_flag = tool_use_message(
+            "flag_for_human_review",
+            {
+                "employee_id": "E001",
+                "item": "laptop",
+                "reason_code": "DATA_INCOMPLETE",
+                "reason": "x",
+            },
+        )
+        fake = FakeModel(
+            [
+                LOOKUP,
+                bare_eligibility,
+                bare_flag,
+                decision_message(
+                    ESCALATE, "DATA_INCOMPLETE", "Ticket ESC-001", ticket_id="ESC-001"
+                ),
+            ]
+        )
+        llm = LLMClient(logger, model="claude-fable-5-2", pricing=PRICING, create=fake.create)
+        tools = to_anthropic_tools(
+            [
+                mcp_types.Tool(name="check_request_eligibility", input_schema=ELIGIBILITY_SCHEMA),
+                mcp_types.Tool(name="flag_for_human_review", input_schema=FLAG_SCHEMA),
+            ]
+        )
+        agent = Agent(logger, llm, session, tools, out=io.StringIO(), reflect=False)  # type: ignore[arg-type]
+
+        result = await agent.run(REQUEST)
+
+        assert result.decision == ESCALATE
+        for sent in fake.calls[0]["tools"]:
+            assert "as_of" not in sent["input_schema"].get("properties", {})
+            assert "request_id" not in sent["input_schema"].get("properties", {})
+        assert session.calls_to("check_request_eligibility")[0]["as_of"] == "2026-11-24"
+        flag_call = session.calls_to("flag_for_human_review")[0]
+        assert flag_call["request"] == REQUEST.as_text()
+        assert flag_call["request_id"] == "req-1"
 
 
 class TestLoop:
@@ -380,6 +493,56 @@ class TestGuardrail:
         assert result.decision == APPROVE
         assert result.guardrail is None
 
+    async def test_denial_cites_the_policy_after_a_policy_lookup(
+        self, logger: RequestLogger
+    ) -> None:
+        policy = {
+            "found": True,
+            "role": "standard",
+            "limits": {"monitor": {"max_quantity": 1, "refresh_months": 36}},
+            "not_eligible": [],
+            "policy_version": "2026.1",
+        }
+        session = FakeSession(
+            {"check_request_eligibility": NOT_ELIGIBLE, "get_policy_limits": policy}
+        )
+        lookup_policy = tool_use_message(
+            "get_policy_limits",
+            {"role": "standard"},
+            thought="NOT_ELIGIBLE with no exception claimed, so I will cite the rule.",
+        )
+        draft = (
+            "Standard employees are entitled to 1 laptop every 48 months; the next eligible "
+            "date is 2028-09-15."
+        )
+        agent, fake, out = make_agent(
+            logger,
+            [
+                LOOKUP,
+                ELIGIBILITY,
+                lookup_policy,
+                decision_message(DENY, "WITHIN_REFRESH_INTERVAL", draft),
+            ],
+            session,
+        )
+
+        result = await agent.run(REQUEST)
+
+        assert [tool for tool, _ in session.calls] == [
+            "get_employee_info",
+            "check_request_eligibility",
+            "get_policy_limits",
+        ]
+        assert session.calls_to("get_policy_limits") == [{"role": "standard"}]
+        assert result.decision == DENY
+        assert result.guardrail is None
+        assert result.steps == 4
+        assert result.draft_response == draft
+        assert "--- Step 3 ---" in out.getvalue()
+        assert 'Action: get_policy_limits({"role": "standard"})' in out.getvalue()
+        assert "get_policy_limits" in SYSTEM_PROMPT
+        assert "Before submitting a DENY, call get_policy_limits" in SYSTEM_PROMPT
+
     async def test_grounded_denial_passes(self, logger: RequestLogger) -> None:
         session = FakeSession({"check_request_eligibility": NOT_ELIGIBLE})
         agent, _, _ = make_agent(
@@ -468,6 +631,58 @@ class TestGuardrail:
         assert '"as_of": "2026-11-24"' in out.getvalue()
         assert "2027-06-01" not in out.getvalue()
 
+        # The attempt is visible in the log even though the trace shows only the forced date.
+        overridden = [line for line in read(logger.run.path) if line["event"] == "as_of_overridden"]
+        assert len(overridden) == 1
+        assert overridden[0]["level"] == "WARNING"
+        assert overridden[0]["step"] == 2
+        assert overridden[0]["supplied"] == "2027-06-01"
+        assert overridden[0]["forced"] == "2026-11-24"
+        assert overridden[0]["request_id"] == "req-1"
+
+    @pytest.mark.parametrize("same_day", ["2026-11-24T00:00:00", "2026-11-24T09:30:00+00:00"])
+    async def test_same_day_in_another_format_is_not_reported(
+        self, logger: RequestLogger, same_day: str
+    ) -> None:
+        session = FakeSession()
+        spelled = tool_use_message(
+            "check_request_eligibility",
+            {"employee_id": "E001", "item": "laptop", "as_of": same_day},
+        )
+        agent, _, _ = make_agent(
+            logger, [LOOKUP, spelled, decision_message(APPROVE, "REFRESH_DUE", "ok")], session
+        )
+
+        await agent.run(REQUEST)
+
+        assert session.calls_to("check_request_eligibility")[0]["as_of"] == "2026-11-24"
+        assert not any(line["event"] == "as_of_overridden" for line in read(logger.run.path))
+
+    async def test_unparseable_as_of_is_reported(self, logger: RequestLogger) -> None:
+        garbage = tool_use_message(
+            "check_request_eligibility",
+            {"employee_id": "E001", "item": "laptop", "as_of": "next Tuesday"},
+        )
+        agent, _, _ = make_agent(
+            logger, [LOOKUP, garbage, decision_message(APPROVE, "REFRESH_DUE", "ok")], FakeSession()
+        )
+
+        await agent.run(REQUEST)
+
+        overridden = [line for line in read(logger.run.path) if line["event"] == "as_of_overridden"]
+        assert overridden[0]["supplied"] == "next Tuesday"
+
+    async def test_matching_as_of_is_not_reported(self, logger: RequestLogger) -> None:
+        agent, _, _ = make_agent(
+            logger,
+            [LOOKUP, ELIGIBILITY, decision_message(APPROVE, "REFRESH_DUE", "ok")],
+            FakeSession(),
+        )
+
+        await agent.run(REQUEST)
+
+        assert not any(line["event"] == "as_of_overridden" for line in read(logger.run.path))
+
     async def test_eligibility_as_of_is_added_when_omitted(self, logger: RequestLogger) -> None:
         session = FakeSession()
         bare = tool_use_message(
@@ -480,6 +695,7 @@ class TestGuardrail:
         await agent.run(REQUEST)
 
         assert session.calls_to("check_request_eligibility")[0]["as_of"] == "2026-11-24"
+        assert not any(line["event"] == "as_of_overridden" for line in read(logger.run.path))
 
     async def test_request_text_cannot_force_approval(self, logger: RequestLogger) -> None:
         injected = Request(
@@ -598,3 +814,78 @@ class TestReflectionInAgent:
         assert result.draft_response == "Approved: your laptop refresh is due."
         purposes = [call["system"][:40] for call in fake.calls]
         assert len(purposes) == 6
+
+
+class RoutedFakeModel:
+    """Scripts keyed by employee ID in the request text, so concurrent runs on one Agent
+    each get their own responses. Yields to the event loop on every call so the runs
+    actually interleave."""
+
+    def __init__(self, scripts: dict[str, list[Any]]) -> None:
+        self.scripts = {k: list(v) for k, v in scripts.items()}
+
+    async def create(self, **kwargs: Any) -> Any:
+        await asyncio.sleep(0)
+        first = kwargs["messages"][0]["content"]
+        key = next(k for k in self.scripts if f"Employee ID: {k}" in first)
+        return self.scripts[key].pop(0)
+
+
+class TestConcurrentRuns:
+    async def test_concurrent_runs_keep_their_own_request_text_and_as_of(
+        self, logger: RequestLogger
+    ) -> None:
+        """Only the request text and as_of are checked here. The logger and LLMClient are
+        shared, so both runs carry request_id "req-1" and one cost budget; an Agent and
+        those two objects are meant to be per request (see the Agent docstring)."""
+        first = Request("E001", "laptop", "Screen cracked.", date(2026, 11, 24))
+        second = Request("E002", "monitor", "Need a second screen.", date(2026, 12, 1))
+
+        def script(employee_id: str, item: str) -> list[Any]:
+            return [
+                tool_use_message("get_employee_info", {"employee_id": employee_id}),
+                tool_use_message(
+                    "check_request_eligibility", {"employee_id": employee_id, "item": item}
+                ),
+                tool_use_message(
+                    "flag_for_human_review",
+                    {
+                        "employee_id": employee_id,
+                        "item": item,
+                        "reason_code": "EXCEPTION_CLAIMED",
+                        "reason": "claimed",
+                    },
+                ),
+                text_message("done"),
+            ]
+
+        model = RoutedFakeModel(
+            {"E001": script("E001", "laptop"), "E002": script("E002", "monitor")}
+        )
+
+        def eligibility(arguments: dict[str, Any]) -> dict[str, Any]:
+            return {**ELIGIBLE, "employee_id": arguments["employee_id"], "item": arguments["item"]}
+
+        session = FakeSession({"check_request_eligibility": eligibility})
+        # Each script ends with a text-only turn, so the loop exits with no decision and
+        # the guardrail escalates with a second real flag call. Both flag calls per run
+        # must carry that run's own request text.
+        llm = LLMClient(logger, model="claude-fable-5-2", pricing=PRICING, create=model.create)
+        tools: list[Any] = [{"name": "get_employee_info", "description": "", "input_schema": {}}]
+        agent = Agent(logger, llm, session, tools, out=io.StringIO(), reflect=False)  # type: ignore[arg-type]
+
+        result_first, result_second = await asyncio.gather(agent.run(first), agent.run(second))
+
+        assert result_first.decision == ESCALATE
+        assert result_second.decision == ESCALATE
+
+        eligibility_calls = session.calls_to("check_request_eligibility")
+        by_employee = {c["employee_id"]: c for c in eligibility_calls}
+        assert by_employee["E001"]["as_of"] == "2026-11-24"
+        assert by_employee["E002"]["as_of"] == "2026-12-01"
+
+        flag_calls = session.calls_to("flag_for_human_review")
+        assert len(flag_calls) == 4
+        for call in flag_calls:
+            expected = first if call["employee_id"] == "E001" else second
+            assert call["request"] == expected.as_text()

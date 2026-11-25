@@ -24,16 +24,21 @@ BORDERLINE_TIMING = "BORDERLINE_TIMING"
 DATA_INCOMPLETE = "DATA_INCOMPLETE"
 REFLECTION_FAILED = "REFLECTION_FAILED"
 GUARDRAIL_BLOCKED = "GUARDRAIL_BLOCKED"
+
+# The codes the model may use when it escalates. Tool descriptions and the system prompt
+# list these, generated from this tuple so the two never drift apart.
+MODEL_ESCALATION_REASON_CODES = (
+    EMPLOYEE_NOT_FOUND,
+    ITEM_NOT_IN_CATALOGUE,
+    EXCEPTION_CLAIMED,
+    BORDERLINE_TIMING,
+    DATA_INCOMPLETE,
+)
+# Codes only the agent's own code uses, when it overrides or abandons the model's draft.
+INTERNAL_ESCALATION_REASON_CODES = (REFLECTION_FAILED, GUARDRAIL_BLOCKED)
+# The tool accepts all of them.
 ESCALATION_REASON_CODES = frozenset(
-    {
-        EMPLOYEE_NOT_FOUND,
-        ITEM_NOT_IN_CATALOGUE,
-        EXCEPTION_CLAIMED,
-        BORDERLINE_TIMING,
-        DATA_INCOMPLETE,
-        REFLECTION_FAILED,
-        GUARDRAIL_BLOCKED,
-    }
+    MODEL_ESCALATION_REASON_CODES + INTERNAL_ESCALATION_REASON_CODES
 )
 
 # flag_for_human_review error codes.
@@ -288,11 +293,11 @@ def _held_units(employee: Employee, catalogue_item: str) -> list[Any]:
 
 def flag_for_human_review(
     employee_id: str,
+    *,
     request: str,
     item: str,
     reason_code: str,
     reason: str,
-    *,
     store: Store,
     request_id: str | None = None,
     audit_path: Path = DEFAULT_AUDIT_PATH,
@@ -300,10 +305,11 @@ def flag_for_human_review(
 ) -> dict[str, Any]:
     """Record an escalation as one JSON line in the audit file and return a ticket ID.
 
-    ``request`` is the employee's original request text, stored so the reviewer sees what
-    was asked. An unknown employee is still recorded, since identity problems are a reason
-    to escalate. An empty request, an empty reason, or an unknown reason code is rejected
-    without writing.
+    ``request`` is the full request as submitted, stored so the reviewer sees what was
+    asked. Everything after ``employee_id`` is keyword-only, so a stale positional call
+    fails loudly instead of landing values in the wrong parameters. An unknown employee is
+    still recorded, since identity problems are a reason to escalate. An empty request, an
+    empty reason, or an unknown reason code is rejected without writing.
     """
     now = now or datetime.now(UTC)
     code = reason_code.strip().upper()
@@ -318,7 +324,7 @@ def flag_for_human_review(
         return {
             "flagged": False,
             "error": EMPTY_REQUEST,
-            "message": "The employee's original request text is required",
+            "message": "The full request as submitted is required",
         }
     if not reason.strip():
         return {
