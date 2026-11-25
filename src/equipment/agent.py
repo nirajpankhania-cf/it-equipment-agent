@@ -18,7 +18,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime
 from typing import Any, cast
 
 from anthropic.types import Message, MessageParam, ToolParam
@@ -185,6 +185,13 @@ class Guardrail:
 
 
 class Agent:
+    """One ReAct run over one request.
+
+    An Agent, its RequestLogger, and its LLMClient are per request: the logger stamps
+    every line with one request_id and the client accumulates one request's cost. Build
+    a fresh set for each request, as run_demo.py does.
+    """
+
     def __init__(
         self,
         logger: RequestLogger,
@@ -277,7 +284,7 @@ class Agent:
     async def _call_tool(
         self, request: Request, step: int, name: str, arguments: dict[str, Any]
     ) -> Observation:
-        arguments = self._complete_arguments(request, name, arguments)
+        arguments = self._complete_arguments(request, step, name, arguments)
         self.print(f"Action: {name}({json.dumps(arguments)})")
         with self.logger.span("tool_call", step=step, tool=name, arguments=arguments) as span:
             result = await self.session.call_tool(name, arguments)
@@ -290,7 +297,7 @@ class Agent:
         return observation
 
     def _complete_arguments(
-        self, request: Request, name: str, arguments: dict[str, Any]
+        self, request: Request, step: int, name: str, arguments: dict[str, Any]
     ) -> dict[str, Any]:
         """Fill in values the code knows better than the model.
 
@@ -306,9 +313,13 @@ class Agent:
         elif name == ELIGIBILITY_TOOL:
             forced = request.submitted_on.isoformat()
             supplied = arguments.get("as_of")
-            if supplied is not None and supplied != forced:
+            if supplied is not None and _as_day(supplied) != request.submitted_on:
                 self.logger.log(
-                    "as_of_overridden", level="WARNING", supplied=supplied, forced=forced
+                    "as_of_overridden",
+                    level="WARNING",
+                    step=step,
+                    supplied=supplied,
+                    forced=forced,
                 )
             arguments = {**arguments, "as_of": forced}
         return arguments
@@ -441,6 +452,19 @@ class Agent:
             observations=observations,
             reflection=reflection,
         )
+
+
+def _as_day(value: Any) -> date | str:
+    """Parse an ISO date or datetime to a date, falling back to the raw string."""
+    text = str(value)
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return text
 
 
 def _assistant_turn(response: Message) -> MessageParam:

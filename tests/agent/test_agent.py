@@ -473,9 +473,42 @@ class TestGuardrail:
         overridden = [line for line in read(logger.run.path) if line["event"] == "as_of_overridden"]
         assert len(overridden) == 1
         assert overridden[0]["level"] == "WARNING"
+        assert overridden[0]["step"] == 2
         assert overridden[0]["supplied"] == "2027-06-01"
         assert overridden[0]["forced"] == "2026-11-24"
         assert overridden[0]["request_id"] == "req-1"
+
+    @pytest.mark.parametrize("same_day", ["2026-11-24T00:00:00", "2026-11-24T09:30:00+00:00"])
+    async def test_same_day_in_another_format_is_not_reported(
+        self, logger: RequestLogger, same_day: str
+    ) -> None:
+        session = FakeSession()
+        spelled = tool_use_message(
+            "check_request_eligibility",
+            {"employee_id": "E001", "item": "laptop", "as_of": same_day},
+        )
+        agent, _, _ = make_agent(
+            logger, [LOOKUP, spelled, decision_message(APPROVE, "REFRESH_DUE", "ok")], session
+        )
+
+        await agent.run(REQUEST)
+
+        assert session.calls_to("check_request_eligibility")[0]["as_of"] == "2026-11-24"
+        assert not any(line["event"] == "as_of_overridden" for line in read(logger.run.path))
+
+    async def test_unparseable_as_of_is_reported(self, logger: RequestLogger) -> None:
+        garbage = tool_use_message(
+            "check_request_eligibility",
+            {"employee_id": "E001", "item": "laptop", "as_of": "next Tuesday"},
+        )
+        agent, _, _ = make_agent(
+            logger, [LOOKUP, garbage, decision_message(APPROVE, "REFRESH_DUE", "ok")], FakeSession()
+        )
+
+        await agent.run(REQUEST)
+
+        overridden = [line for line in read(logger.run.path) if line["event"] == "as_of_overridden"]
+        assert overridden[0]["supplied"] == "next Tuesday"
 
     async def test_matching_as_of_is_not_reported(self, logger: RequestLogger) -> None:
         agent, _, _ = make_agent(
@@ -637,9 +670,12 @@ class RoutedFakeModel:
 
 
 class TestConcurrentRuns:
-    async def test_two_requests_on_one_agent_keep_their_own_request_and_date(
+    async def test_concurrent_runs_keep_their_own_request_text_and_as_of(
         self, logger: RequestLogger
     ) -> None:
+        """Only the request text and as_of are checked here. The logger and LLMClient are
+        shared, so both runs carry request_id "req-1" and one cost budget; an Agent and
+        those two objects are meant to be per request (see the Agent docstring)."""
         first = Request("E001", "laptop", "Screen cracked.", date(2026, 11, 24))
         second = Request("E002", "monitor", "Need a second screen.", date(2026, 12, 1))
 

@@ -319,7 +319,7 @@ def flag_for_human_review(
         return {
             "flagged": False,
             "error": EMPTY_REQUEST,
-            "message": "The employee's original request text is required",
+            "message": "The full request as submitted is required",
         }
     if not reason.strip():
         return {

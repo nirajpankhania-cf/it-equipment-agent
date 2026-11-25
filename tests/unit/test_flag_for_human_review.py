@@ -139,7 +139,7 @@ class TestEdgeCases:
         assert result == {
             "flagged": False,
             "error": EMPTY_REQUEST,
-            "message": "The employee's original request text is required",
+            "message": "The full request as submitted is required",
         }
         assert not audit_path.exists()
 
