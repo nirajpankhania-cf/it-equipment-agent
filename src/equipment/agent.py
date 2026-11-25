@@ -203,13 +203,11 @@ class Agent:
         self.max_steps = max_steps
         self.reflect = reflect
         self.out = out or sys.stdout
-        self.request: Request | None = None
 
     def print(self, text: str) -> None:
         print(text, file=self.out)
 
     async def run(self, request: Request) -> AgentResult:
-        self.request = request
         self.logger.log(
             "request_received",
             employee_id=request.employee_id,
@@ -251,7 +249,7 @@ class Agent:
                     self.logger.log("decision_submitted", step=step, submitted=arguments)
                     results.append(_tool_result(call.id, {"received": True}))
                     continue
-                observation = await self._call_tool(step, call.name, arguments)
+                observation = await self._call_tool(request, step, call.name, arguments)
                 observations.append(observation)
                 results.append(_tool_result(call.id, observation.result, observation.is_error))
             messages.append({"role": "user", "content": cast(Any, results)})
@@ -276,8 +274,10 @@ class Agent:
             span.fields["stop_reason"] = response.stop_reason
         return response
 
-    async def _call_tool(self, step: int, name: str, arguments: dict[str, Any]) -> Observation:
-        arguments = self._complete_arguments(name, arguments)
+    async def _call_tool(
+        self, request: Request, step: int, name: str, arguments: dict[str, Any]
+    ) -> Observation:
+        arguments = self._complete_arguments(request, name, arguments)
         self.print(f"Action: {name}({json.dumps(arguments)})")
         with self.logger.span("tool_call", step=step, tool=name, arguments=arguments) as span:
             result = await self.session.call_tool(name, arguments)
@@ -289,18 +289,22 @@ class Agent:
         self.print(f"Observation: {json.dumps(observation.result)}")
         return observation
 
-    def _complete_arguments(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    def _complete_arguments(
+        self, request: Request, name: str, arguments: dict[str, Any]
+    ) -> dict[str, Any]:
         """Fill in values the code knows better than the model.
 
         The eligibility date is always the request's submission date, whatever the model
         passed, so a decision cannot be moved forward or back by choosing a different day.
         """
         if name == FLAG_TOOL:
-            arguments = {**arguments, "request_id": self.logger.request_id}
-            if self.request is not None:
-                arguments["request"] = self.request.as_text()
-        elif name == ELIGIBILITY_TOOL and self.request is not None:
-            forced = self.request.submitted_on.isoformat()
+            arguments = {
+                **arguments,
+                "request_id": self.logger.request_id,
+                "request": request.as_text(),
+            }
+        elif name == ELIGIBILITY_TOOL:
+            forced = request.submitted_on.isoformat()
             supplied = arguments.get("as_of")
             if supplied is not None and supplied != forced:
                 self.logger.log(
@@ -409,6 +413,7 @@ class Agent:
     ) -> AgentResult:
         """Escalate from code with a real flag call, so the ticket is genuine."""
         observation = await self._call_tool(
+            request,
             steps,
             FLAG_TOOL,
             {

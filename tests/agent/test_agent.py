@@ -1,5 +1,6 @@
 """ReAct loop, step cap, and guardrail, driven by the scripted fake model."""
 
+import asyncio
 import io
 import json
 from collections.abc import Callable
@@ -618,3 +619,75 @@ class TestReflectionInAgent:
         assert result.draft_response == "Approved: your laptop refresh is due."
         purposes = [call["system"][:40] for call in fake.calls]
         assert len(purposes) == 6
+
+
+class RoutedFakeModel:
+    """Scripts keyed by employee ID in the request text, so concurrent runs on one Agent
+    each get their own responses. Yields to the event loop on every call so the runs
+    actually interleave."""
+
+    def __init__(self, scripts: dict[str, list[Any]]) -> None:
+        self.scripts = {k: list(v) for k, v in scripts.items()}
+
+    async def create(self, **kwargs: Any) -> Any:
+        await asyncio.sleep(0)
+        first = kwargs["messages"][0]["content"]
+        key = next(k for k in self.scripts if f"Employee ID: {k}" in first)
+        return self.scripts[key].pop(0)
+
+
+class TestConcurrentRuns:
+    async def test_two_requests_on_one_agent_keep_their_own_request_and_date(
+        self, logger: RequestLogger
+    ) -> None:
+        first = Request("E001", "laptop", "Screen cracked.", date(2026, 11, 24))
+        second = Request("E002", "monitor", "Need a second screen.", date(2026, 12, 1))
+
+        def script(employee_id: str, item: str) -> list[Any]:
+            return [
+                tool_use_message("get_employee_info", {"employee_id": employee_id}),
+                tool_use_message(
+                    "check_request_eligibility", {"employee_id": employee_id, "item": item}
+                ),
+                tool_use_message(
+                    "flag_for_human_review",
+                    {
+                        "employee_id": employee_id,
+                        "item": item,
+                        "reason_code": "EXCEPTION_CLAIMED",
+                        "reason": "claimed",
+                    },
+                ),
+                text_message("done"),
+            ]
+
+        model = RoutedFakeModel(
+            {"E001": script("E001", "laptop"), "E002": script("E002", "monitor")}
+        )
+
+        def eligibility(arguments: dict[str, Any]) -> dict[str, Any]:
+            return {**ELIGIBLE, "employee_id": arguments["employee_id"], "item": arguments["item"]}
+
+        session = FakeSession({"check_request_eligibility": eligibility})
+        # Each script ends with a text-only turn, so the loop exits with no decision and
+        # the guardrail escalates with a second real flag call. Both flag calls per run
+        # must carry that run's own request text.
+        llm = LLMClient(logger, model="claude-fable-5-2", pricing=PRICING, create=model.create)
+        tools: list[Any] = [{"name": "get_employee_info", "description": "", "input_schema": {}}]
+        agent = Agent(logger, llm, session, tools, out=io.StringIO(), reflect=False)  # type: ignore[arg-type]
+
+        result_first, result_second = await asyncio.gather(agent.run(first), agent.run(second))
+
+        assert result_first.decision == ESCALATE
+        assert result_second.decision == ESCALATE
+
+        eligibility_calls = session.calls_to("check_request_eligibility")
+        by_employee = {c["employee_id"]: c for c in eligibility_calls}
+        assert by_employee["E001"]["as_of"] == "2026-11-24"
+        assert by_employee["E002"]["as_of"] == "2026-12-01"
+
+        flag_calls = session.calls_to("flag_for_human_review")
+        assert len(flag_calls) == 4
+        for call in flag_calls:
+            expected = first if call["employee_id"] == "E001" else second
+            assert call["request"] == expected.as_text()
