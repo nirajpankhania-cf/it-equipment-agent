@@ -300,7 +300,13 @@ class Agent:
             if self.request is not None:
                 arguments["request"] = self.request.as_text()
         elif name == ELIGIBILITY_TOOL and self.request is not None:
-            arguments = {**arguments, "as_of": self.request.submitted_on.isoformat()}
+            forced = self.request.submitted_on.isoformat()
+            supplied = arguments.get("as_of")
+            if supplied is not None and supplied != forced:
+                self.logger.log(
+                    "as_of_overridden", level="WARNING", supplied=supplied, forced=forced
+                )
+            arguments = {**arguments, "as_of": forced}
         return arguments
 
     async def _finalize(

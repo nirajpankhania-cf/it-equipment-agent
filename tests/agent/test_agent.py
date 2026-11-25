@@ -468,6 +468,25 @@ class TestGuardrail:
         assert '"as_of": "2026-11-24"' in out.getvalue()
         assert "2027-06-01" not in out.getvalue()
 
+        # The attempt is visible in the log even though the trace shows only the forced date.
+        overridden = [line for line in read(logger.run.path) if line["event"] == "as_of_overridden"]
+        assert len(overridden) == 1
+        assert overridden[0]["level"] == "WARNING"
+        assert overridden[0]["supplied"] == "2027-06-01"
+        assert overridden[0]["forced"] == "2026-11-24"
+        assert overridden[0]["request_id"] == "req-1"
+
+    async def test_matching_as_of_is_not_reported(self, logger: RequestLogger) -> None:
+        agent, _, _ = make_agent(
+            logger,
+            [LOOKUP, ELIGIBILITY, decision_message(APPROVE, "REFRESH_DUE", "ok")],
+            FakeSession(),
+        )
+
+        await agent.run(REQUEST)
+
+        assert not any(line["event"] == "as_of_overridden" for line in read(logger.run.path))
+
     async def test_eligibility_as_of_is_added_when_omitted(self, logger: RequestLogger) -> None:
         session = FakeSession()
         bare = tool_use_message(
@@ -480,6 +499,7 @@ class TestGuardrail:
         await agent.run(REQUEST)
 
         assert session.calls_to("check_request_eligibility")[0]["as_of"] == "2026-11-24"
+        assert not any(line["event"] == "as_of_overridden" for line in read(logger.run.path))
 
     async def test_request_text_cannot_force_approval(self, logger: RequestLogger) -> None:
         injected = Request(
