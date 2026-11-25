@@ -493,6 +493,56 @@ class TestGuardrail:
         assert result.decision == APPROVE
         assert result.guardrail is None
 
+    async def test_denial_cites_the_policy_after_a_policy_lookup(
+        self, logger: RequestLogger
+    ) -> None:
+        policy = {
+            "found": True,
+            "role": "standard",
+            "limits": {"monitor": {"max_quantity": 1, "refresh_months": 36}},
+            "not_eligible": [],
+            "policy_version": "2026.1",
+        }
+        session = FakeSession(
+            {"check_request_eligibility": NOT_ELIGIBLE, "get_policy_limits": policy}
+        )
+        lookup_policy = tool_use_message(
+            "get_policy_limits",
+            {"role": "standard"},
+            thought="NOT_ELIGIBLE with no exception claimed, so I will cite the rule.",
+        )
+        draft = (
+            "Standard employees are entitled to 1 laptop every 48 months; the next eligible "
+            "date is 2028-09-15."
+        )
+        agent, fake, out = make_agent(
+            logger,
+            [
+                LOOKUP,
+                ELIGIBILITY,
+                lookup_policy,
+                decision_message(DENY, "WITHIN_REFRESH_INTERVAL", draft),
+            ],
+            session,
+        )
+
+        result = await agent.run(REQUEST)
+
+        assert [tool for tool, _ in session.calls] == [
+            "get_employee_info",
+            "check_request_eligibility",
+            "get_policy_limits",
+        ]
+        assert session.calls_to("get_policy_limits") == [{"role": "standard"}]
+        assert result.decision == DENY
+        assert result.guardrail is None
+        assert result.steps == 4
+        assert result.draft_response == draft
+        assert "--- Step 3 ---" in out.getvalue()
+        assert 'Action: get_policy_limits({"role": "standard"})' in out.getvalue()
+        assert "get_policy_limits" in SYSTEM_PROMPT
+        assert "Before submitting a DENY, call get_policy_limits" in SYSTEM_PROMPT
+
     async def test_grounded_denial_passes(self, logger: RequestLogger) -> None:
         session = FakeSession({"check_request_eligibility": NOT_ELIGIBLE})
         agent, _, _ = make_agent(

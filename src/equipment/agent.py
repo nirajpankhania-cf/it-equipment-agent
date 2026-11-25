@@ -48,7 +48,7 @@ from equipment.reflection import FAILED, REVISED, Reflection
 
 __all__ = ["APPROVE", "DENY", "ESCALATE", "DECISIONS", "AgentResult", "Observation", "Request"]
 
-PROMPT_VERSION = "1.3"
+PROMPT_VERSION = "1.4"
 MAX_STEPS = 8
 
 SUBMIT_DECISION = "submit_decision"
@@ -83,8 +83,10 @@ Decision rules:
 - APPROVE only when check_request_eligibility returned status ELIGIBLE and the request \
 claims no exception.
 - DENY only when check_request_eligibility returned status NOT_ELIGIBLE and the request \
-claims no exception. State the rule applied and, if the tool gave one, the next eligible \
-date.
+claims no exception. Before submitting a DENY, call get_policy_limits with the employee's \
+role and cite the rule from that result: the item's maximum quantity and refresh interval, \
+or that the role is not entitled to the item. Also give the next eligible date if the \
+eligibility tool returned one.
 - ESCALATE, by calling flag_for_human_review and waiting for its ticket ID, whenever any of \
 these holds, even if the employee would otherwise be eligible:
   * check_request_eligibility returned status REVIEW_REQUIRED: use its reason_code.
