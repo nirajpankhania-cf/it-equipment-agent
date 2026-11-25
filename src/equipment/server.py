@@ -16,9 +16,10 @@ import sys
 from datetime import date
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.mcpserver import MCPServer
+from pydantic import Field
 
 from equipment import core
 from equipment.store import Store, load_store
@@ -31,6 +32,19 @@ logging.basicConfig(
 log = logging.getLogger("equipment.server")
 
 mcp = MCPServer("it-equipment")
+
+CATALOGUE_ITEMS = "laptop, monitor, keyboard, mouse, headset, docking_station"
+ROLES = "standard, engineer, manager, contractor"
+
+EmployeeId = Annotated[
+    str,
+    Field(
+        description=(
+            "The employee's ID as it appears in the request, for example E001. "
+            "Matching ignores case and surrounding spaces."
+        )
+    ),
+]
 
 # Fixed at startup; the tool takes no path argument (plan section 9).
 AUDIT_PATH = Path(os.environ.get("EQUIPMENT_AUDIT_PATH", str(core.DEFAULT_AUDIT_PATH)))
@@ -50,7 +64,7 @@ def get_store() -> Store:
 
 
 @mcp.tool()
-def get_employee_info(employee_id: str) -> dict[str, Any]:
+def get_employee_info(employee_id: EmployeeId) -> dict[str, Any]:
     """Look up an employee by ID. Returns role, tenure in months, and equipment held with
     each item's age in months. Returns found=false with error EMPLOYEE_NOT_FOUND if the
     ID is not on file."""
@@ -60,7 +74,16 @@ def get_employee_info(employee_id: str) -> dict[str, Any]:
 
 
 @mcp.tool()
-def get_policy_limits(role: str) -> dict[str, Any]:
+def get_policy_limits(
+    role: Annotated[
+        str,
+        Field(
+            description=(
+                f"One of the four roles: {ROLES}, for example engineer. Matching ignores case."
+            )
+        ),
+    ],
+) -> dict[str, Any]:
     """Return the equipment entitlement for a role: for each item the maximum quantity
     and the refresh interval in months, plus the items the role is not eligible for.
     Returns found=false with error ROLE_NOT_FOUND if the role has no policy."""
@@ -71,7 +94,25 @@ def get_policy_limits(role: str) -> dict[str, Any]:
 
 @mcp.tool()
 def check_request_eligibility(
-    employee_id: str, item: str, as_of: date | None = None
+    employee_id: EmployeeId,
+    item: Annotated[
+        str,
+        Field(
+            description=(
+                f"The equipment requested, one of the six catalogue items: {CATALOGUE_ITEMS}, "
+                "for example laptop. Anything else returns ITEM_NOT_IN_CATALOGUE."
+            )
+        ),
+    ],
+    as_of: Annotated[
+        date | None,
+        Field(
+            description=(
+                "The date to evaluate as of, as an ISO date (YYYY-MM-DD), for example "
+                "2026-11-24. Defaults to today."
+            )
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Apply the equipment policy for one employee and one item. Returns status ELIGIBLE,
     NOT_ELIGIBLE, or REVIEW_REQUIRED with a reason_code and, where relevant, the next
@@ -92,12 +133,48 @@ def check_request_eligibility(
 
 @mcp.tool()
 def flag_for_human_review(
-    employee_id: str,
-    request: str,
-    item: str,
-    reason_code: str,
-    reason: str,
-    request_id: str | None = None,
+    employee_id: EmployeeId,
+    request: Annotated[
+        str,
+        Field(
+            description=(
+                "The full request as submitted: employee ID, item, reason, and submission "
+                "date, for example 'Employee ID: E003 / Item requested: laptop / Reason "
+                "given: The screen is cracked. / Submitted on: 2026-11-24'."
+            )
+        ),
+    ],
+    item: Annotated[
+        str,
+        Field(description="The item requested, as written in the request, for example laptop."),
+    ],
+    reason_code: Annotated[
+        str,
+        Field(
+            description=(
+                "Why a human is needed, one of the escalation reason codes, for example "
+                "EXCEPTION_CLAIMED."
+            )
+        ),
+    ],
+    reason: Annotated[
+        str,
+        Field(
+            description=(
+                "A short plain-language explanation, for example 'Requester reports a cracked "
+                "screen; damage cannot be verified from records'."
+            )
+        ),
+    ],
+    request_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The agent's request ID, so the audit entry can be matched to the trace, "
+                "for example req-20261124-151306-81ceff."
+            )
+        ),
+    ] = None,
 ) -> dict[str, Any]:
     """Escalate a request to a human reviewer. Writes an audit entry and returns a ticket
     ID that must be quoted in the response. request is the full request as submitted

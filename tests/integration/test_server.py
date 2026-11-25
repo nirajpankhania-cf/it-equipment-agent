@@ -69,6 +69,30 @@ async def test_lists_tools_with_schemas() -> None:
 
 
 @pytest.mark.integration
+async def test_every_parameter_has_a_description_with_an_example() -> None:
+    async with server_session() as session:
+        tools = await session.list_tools()
+
+    for tool in tools.tools:
+        for name, prop in tool.input_schema["properties"].items():
+            assert prop.get("description"), f"{tool.name}.{name} has no description"
+            assert "for example" in prop["description"], f"{tool.name}.{name} has no example"
+
+    by_name = {tool.name: tool.input_schema["properties"] for tool in tools.tools}
+    assert "E001" in by_name["get_employee_info"]["employee_id"]["description"]
+    assert "E001" in by_name["flag_for_human_review"]["employee_id"]["description"]
+
+    item = by_name["check_request_eligibility"]["item"]["description"]
+    for catalogue_item in ("laptop", "monitor", "keyboard", "mouse", "headset", "docking_station"):
+        assert catalogue_item in item
+    assert "ITEM_NOT_IN_CATALOGUE" in item
+
+    role = by_name["get_policy_limits"]["role"]["description"]
+    for role_name in ("standard", "engineer", "manager", "contractor"):
+        assert role_name in role
+
+
+@pytest.mark.integration
 async def test_known_employee() -> None:
     async with server_session() as session:
         result = await call(session, "get_employee_info", employee_id="E001")
